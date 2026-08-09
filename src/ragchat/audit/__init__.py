@@ -17,6 +17,7 @@ from ragchat.audit.checklist import (
     DocType,
     DocumentRequirement,
     FieldRule,
+    FieldSpec,
     get_checklist,
 )
 from ragchat.audit.engine import evaluate
@@ -37,6 +38,7 @@ __all__ = [
     "DocumentRequirement",
     "ExtractedField",
     "FieldRule",
+    "FieldSpec",
     "Finding",
     "FindingStatus",
     "GapReport",

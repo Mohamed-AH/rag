@@ -36,11 +36,21 @@ RuleCheck = Callable[[PacketEvidence, RuleContext], RuleResult]
 
 
 @dataclass(frozen=True, slots=True)
+class FieldSpec:
+    """A field the extractor should pull from a document type. The description guides the
+    model; the name is the key the Layer-2 rules read."""
+
+    name: str
+    description: str
+
+
+@dataclass(frozen=True, slots=True)
 class DocType:
-    """A document type a checklist knows about."""
+    """A document type a checklist knows about, plus the fields to extract from it."""
 
     id: str
     name: str
+    fields: tuple[FieldSpec, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -75,6 +85,14 @@ class Checklist:
 
     def doc_type_ids(self) -> frozenset[str]:
         return frozenset(dt.id for dt in self.doc_types)
+
+    def doc_type(self, doc_type_id: str) -> DocType | None:
+        return next((dt for dt in self.doc_types if dt.id == doc_type_id), None)
+
+    def fields_for(self, doc_type_id: str) -> tuple[FieldSpec, ...]:
+        """The fields the extractor should pull for ``doc_type_id`` (empty if unknown)."""
+        dt = self.doc_type(doc_type_id)
+        return dt.fields if dt is not None else ()
 
 
 # --- Rule helpers ---------------------------------------------------------
@@ -316,10 +334,46 @@ CUSTOMS_CHECKLIST = Checklist(
     id="customs",
     name="Customs Pre-Clearance",
     doc_types=(
-        DocType(id="commercial_invoice", name="Commercial Invoice"),
-        DocType(id="packing_list", name="Packing List"),
-        DocType(id="bill_of_lading", name="Bill of Lading / Air Waybill"),
-        DocType(id="certificate_of_origin", name="Certificate of Origin"),
+        DocType(
+            id="commercial_invoice",
+            name="Commercial Invoice",
+            fields=(
+                FieldSpec("hts_code", "The HTS/HS tariff classification code."),
+                FieldSpec("country_of_origin", "The declared country of origin of the goods."),
+                FieldSpec("currency", "The currency of the declared value (e.g. USD)."),
+                FieldSpec("total_value", "The total declared value/amount of the invoice."),
+                FieldSpec("exporter", "The exporter / shipper / seller name."),
+                FieldSpec("consignee", "The consignee / buyer / importer name."),
+            ),
+        ),
+        DocType(
+            id="packing_list",
+            name="Packing List",
+            fields=(
+                FieldSpec("total_value", "The total declared value/amount, if stated."),
+                FieldSpec("net_weight", "The total net weight of the shipment."),
+                FieldSpec("total_cartons", "The total number of cartons/packages."),
+                FieldSpec("exporter", "The exporter / shipper name."),
+                FieldSpec("consignee", "The consignee / buyer name."),
+            ),
+        ),
+        DocType(
+            id="bill_of_lading",
+            name="Bill of Lading / Air Waybill",
+            fields=(
+                FieldSpec("net_weight", "The total net weight of the shipment."),
+                FieldSpec("total_cartons", "The total number of cartons/packages."),
+                FieldSpec("exporter", "The shipper / exporter name."),
+                FieldSpec("consignee", "The consignee name."),
+            ),
+        ),
+        DocType(
+            id="certificate_of_origin",
+            name="Certificate of Origin",
+            fields=(
+                FieldSpec("country_of_origin", "The certified country of origin of the goods."),
+            ),
+        ),
     ),
     document_requirements=(
         DocumentRequirement("doc.commercial_invoice", "commercial_invoice", "Commercial Invoice"),
