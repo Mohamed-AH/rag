@@ -1,0 +1,105 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ragchat"
+version = "1.0.0"
+description = "Retrieval-augmented Q&A service over a knowledge base, built on PostgreSQL + pgvector, LangChain, and Gemini."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+authors = [{ name = "Mohamed AH" }]
+keywords = ["rag", "langchain", "pgvector", "fastapi", "postgresql", "llm"]
+
+dependencies = [
+    "fastapi>=0.111",
+    "uvicorn[standard]>=0.30",
+    "typer>=0.12",
+    "pydantic>=2.7",
+    "pydantic-settings>=2.3",
+    "sqlalchemy>=2.0",
+    "alembic>=1.13",
+    "psycopg[binary]>=3.1",
+    "langchain>=0.2",
+    "langchain-core>=0.2",
+    "langchain-postgres>=0.0.9",
+    "langchain-cohere>=0.1.5",
+    "langchain-google-genai>=1.0.4",
+    "python-dotenv>=1.0",
+    "python-multipart>=0.0.9",
+    "pypdf>=4.2",
+    "python-docx>=1.1",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.2",
+    "pytest-cov>=5.0",
+    "httpx>=0.27",
+    "ruff>=0.5",
+    "mypy>=1.10",
+]
+
+[project.scripts]
+ragchat = "ragchat.cli:app"
+
+[project.urls]
+Repository = "https://github.com/Mohamed-AH/postgresslangchainchat"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+ragchat = [
+    "py.typed",
+    "api/static/*.html",
+    "migrations/*.py",
+    "migrations/*.mako",
+    "migrations/versions/*.py",
+]
+
+# ---------------------------------------------------------------------------
+# Quality tooling
+# ---------------------------------------------------------------------------
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "C4", "SIM", "RUF"]
+ignore = ["B008"]  # FastAPI/Typer use function calls (Depends/Argument) as defaults
+
+[tool.mypy]
+python_version = "3.11"
+packages = ["ragchat"]
+mypy_path = "src"
+strict = true
+warn_unused_ignores = true
+disallow_untyped_decorators = false
+plugins = ["pydantic.mypy"]
+
+[[tool.mypy.overrides]]
+module = [
+    "langchain_cohere.*",
+    "langchain_google_genai.*",
+    "langchain_postgres.*",
+    "uvicorn.*",
+    "docx.*",
+    "pypdf.*",
+]
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+# Integration tests need a live pgvector DB, so they're deselected by default; run them
+# explicitly with `pytest -m integration` (the CI integration job does this).
+addopts = "-ra -q --strict-markers -m 'not integration'"
+markers = [
+    "integration: tests that require a live PostgreSQL + pgvector instance (deselected by default)",
+]
+
+[tool.coverage.run]
+source = ["ragchat"]
+branch = true

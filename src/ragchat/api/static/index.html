@@ -1,0 +1,463 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>ragchat — ask your documents</title>
+  <style>
+    :root {
+      --bg: #f6f7f9; --surface: #ffffff; --sidebar: #fbfbfc;
+      --ink: #0b0d12; --muted: #667085; --faint: #98a2b3;
+      --line: #e7e9ee; --line-strong: #d6dae1;
+      --accent: #4f46e5; --accent-ink: #ffffff; --accent-soft: #eef0fe;
+      --ok: #067647; --ok-soft: #e7f6ec; --err: #b42318; --warn-bg: #fff8eb; --warn-ink: #93500b;
+      --chip: #f1f3f7;
+      --radius: 12px; --radius-sm: 9px;
+      --shadow: 0 1px 2px rgba(16,24,40,.05), 0 1px 3px rgba(16,24,40,.08);
+      --shadow-lg: 0 10px 30px rgba(16,24,40,.12);
+      --sidebar-w: 300px;
+      --font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    }
+    :root:not([data-theme="light"]) {}
+    @media (prefers-color-scheme: dark) {
+      :root:not([data-theme="light"]) {
+        --bg: #0c0d10; --surface: #141619; --sidebar: #0f1114;
+        --ink: #e8eaed; --muted: #9aa3b2; --faint: #6b7280;
+        --line: #23262d; --line-strong: #2d313a;
+        --accent: #6366f1; --accent-ink: #0b0d11; --accent-soft: #1b1e3a;
+        --ok: #4ade80; --ok-soft: #12331f; --err: #f87171; --warn-bg: #2a2213; --warn-ink: #f5c451;
+        --chip: #1b1e24;
+        --shadow: 0 1px 2px rgba(0,0,0,.3); --shadow-lg: 0 12px 34px rgba(0,0,0,.5);
+      }
+    }
+    :root[data-theme="dark"] {
+      --bg: #0c0d10; --surface: #141619; --sidebar: #0f1114;
+      --ink: #e8eaed; --muted: #9aa3b2; --faint: #6b7280;
+      --line: #23262d; --line-strong: #2d313a;
+      --accent: #6366f1; --accent-ink: #0b0d11; --accent-soft: #1b1e3a;
+      --ok: #4ade80; --ok-soft: #12331f; --err: #f87171; --warn-bg: #2a2213; --warn-ink: #f5c451;
+      --chip: #1b1e24;
+      --shadow: 0 1px 2px rgba(0,0,0,.3); --shadow-lg: 0 12px 34px rgba(0,0,0,.5);
+    }
+
+    * { box-sizing: border-box; }
+    html, body { height: 100%; }
+    body {
+      margin: 0; background: var(--bg); color: var(--ink);
+      font-family: var(--font); font-size: 15px; line-height: 1.55;
+      -webkit-font-smoothing: antialiased;
+    }
+    button { font-family: inherit; cursor: pointer; }
+    a { color: var(--accent); }
+
+    /* ---- App shell ---- */
+    .app { display: grid; grid-template-columns: var(--sidebar-w) 1fr; height: 100dvh; }
+
+    /* ---- Sidebar ---- */
+    .sidebar {
+      background: var(--sidebar); border-right: 1px solid var(--line);
+      display: flex; flex-direction: column; min-height: 0; overflow-y: auto;
+    }
+    .brand { display: flex; align-items: center; gap: 9px; padding: 18px 18px 12px; }
+    .brand .dot { width: 22px; height: 22px; border-radius: 7px; background: var(--accent);
+      display: grid; place-items: center; color: var(--accent-ink); font-weight: 800; font-size: 13px; }
+    .brand h1 { font-size: 16px; margin: 0; letter-spacing: -.01em; }
+    .side-section { padding: 12px 16px; border-top: 1px solid var(--line); }
+    .side-section:first-of-type { border-top: 0; }
+    .side-label { font-size: 11px; font-weight: 700; letter-spacing: .07em; text-transform: uppercase;
+      color: var(--faint); margin: 2px 2px 10px; display: flex; align-items: center; justify-content: space-between; }
+
+    .uploader { display: flex; flex-direction: column; gap: 8px; }
+    .file-drop {
+      border: 1px dashed var(--line-strong); border-radius: var(--radius-sm); padding: 14px;
+      text-align: center; color: var(--muted); font-size: 13px; background: var(--surface);
+      transition: border-color .15s, background .15s;
+    }
+    .file-drop:hover { border-color: var(--accent); }
+    .file-drop strong { color: var(--ink); }
+    .file-name { font-size: 12.5px; color: var(--ink); word-break: break-all; margin-top: 4px; }
+    input[type=file] { display: none; }
+
+    .sources-list { display: flex; flex-direction: column; gap: 8px; }
+    .source-item { display: flex; gap: 9px; align-items: flex-start; padding: 10px;
+      background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-sm); }
+    .source-item svg { flex: none; margin-top: 1px; color: var(--accent); }
+    .source-item .meta { min-width: 0; }
+    .source-item .fn { font-size: 13px; font-weight: 600; word-break: break-all; }
+    .source-item .sub { font-size: 12px; color: var(--muted); }
+    .empty-note { font-size: 12.5px; color: var(--faint); padding: 2px; }
+
+    /* keys / settings */
+    .pill { display: inline-flex; align-items: center; gap: 5px; font-size: 11px; font-weight: 600;
+      padding: 3px 9px; border-radius: 999px; background: var(--chip); color: var(--muted); }
+    .pill.own { background: var(--ok-soft); color: var(--ok); }
+    .pill .d { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+    .keys-form { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; }
+    .field label { font-size: 12px; color: var(--muted); display: block; margin-bottom: 4px; }
+    input[type=password], input[type=text] {
+      width: 100%; padding: 9px 11px; border: 1px solid var(--line-strong); border-radius: var(--radius-sm);
+      background: var(--surface); color: var(--ink); font: inherit; font-size: 13px;
+    }
+    input:focus, textarea:focus { outline: 2px solid var(--accent-soft); outline-offset: 0; border-color: var(--accent); }
+    .side-actions { display: flex; gap: 8px; margin-top: 4px; }
+    .keys-help { font-size: 11.5px; color: var(--faint); margin-top: 8px; line-height: 1.5; }
+    .sidebar-foot { margin-top: auto; padding: 14px 18px; border-top: 1px solid var(--line);
+      font-size: 11.5px; color: var(--faint); }
+
+    /* ---- Buttons ---- */
+    .btn { display: inline-flex; align-items: center; justify-content: center; gap: 7px;
+      border: 1px solid transparent; border-radius: var(--radius-sm); font-weight: 600; font-size: 13.5px;
+      padding: 9px 14px; transition: opacity .15s, transform .04s, background .15s; }
+    .btn:active { transform: translateY(1px); }
+    .btn[disabled] { opacity: .5; cursor: not-allowed; }
+    .btn-primary { background: var(--accent); color: var(--accent-ink); }
+    .btn-primary:hover:not([disabled]) { opacity: .92; }
+    .btn-ghost { background: var(--surface); color: var(--ink); border-color: var(--line-strong); }
+    .btn-ghost:hover { background: var(--chip); }
+    .btn-block { width: 100%; }
+
+    /* ---- Main ---- */
+    .main { display: flex; flex-direction: column; min-width: 0; height: 100dvh; }
+    .topbar { display: flex; align-items: center; gap: 12px; padding: 12px 20px; border-bottom: 1px solid var(--line);
+      background: color-mix(in srgb, var(--surface) 80%, transparent); backdrop-filter: blur(6px); position: sticky; top: 0; z-index: 5; }
+    .topbar h2 { font-size: 14px; margin: 0; font-weight: 600; }
+    .topbar .sub { font-size: 12.5px; color: var(--muted); }
+    .hamburger { display: none; background: transparent; border: 1px solid var(--line-strong);
+      border-radius: 8px; padding: 6px 8px; color: var(--ink); }
+    .icon-btn { margin-left: auto; background: transparent; border: 1px solid var(--line-strong);
+      border-radius: 8px; padding: 6px 9px; color: var(--muted); font-size: 12px; }
+
+    .thread { flex: 1; overflow-y: auto; padding: 24px 20px 12px; }
+    .thread-inner { max-width: 760px; margin: 0 auto; display: flex; flex-direction: column; gap: 26px; }
+    .empty-state { text-align: center; color: var(--muted); margin: 8vh auto 0; max-width: 440px; }
+    .empty-state .big { width: 46px; height: 46px; border-radius: 13px; background: var(--accent-soft);
+      color: var(--accent); display: grid; place-items: center; margin: 0 auto 14px; }
+    .empty-state h3 { color: var(--ink); margin: 0 0 6px; font-size: 18px; }
+    .empty-state p { margin: 0; font-size: 14px; }
+
+    .turn { display: flex; flex-direction: column; gap: 12px; }
+    .q { align-self: flex-end; max-width: 90%; background: var(--accent); color: var(--accent-ink);
+      padding: 10px 14px; border-radius: 14px 14px 4px 14px; font-size: 14.5px; }
+    .a { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 16px 18px; box-shadow: var(--shadow); }
+    .a .answer-text { white-space: pre-wrap; font-size: 15px; }
+    .a .srcs { margin-top: 14px; padding-top: 12px; border-top: 1px dashed var(--line); }
+    .a .srcs-label { font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--faint); margin-bottom: 8px; }
+    .chips { display: flex; flex-wrap: wrap; gap: 7px; }
+    .chip { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--ink);
+      background: var(--chip); border: 1px solid var(--line); border-radius: 999px; padding: 5px 11px 5px 8px; cursor: pointer; }
+    .chip:hover { border-color: var(--accent); }
+    .chip .n { display: inline-grid; place-items: center; width: 17px; height: 17px; border-radius: 50%;
+      background: var(--accent); color: var(--accent-ink); font-size: 10.5px; font-weight: 700; }
+    .src-card { margin-top: 8px; border: 1px solid var(--line); border-radius: var(--radius-sm); overflow: hidden; }
+    .src-card summary { cursor: pointer; list-style: none; padding: 9px 12px; font-size: 13px; font-weight: 600;
+      display: flex; gap: 8px; align-items: center; }
+    .src-card summary::-webkit-details-marker { display: none; }
+    .src-card summary .n { display: inline-grid; place-items: center; width: 18px; height: 18px; border-radius: 50%;
+      background: var(--accent-soft); color: var(--accent); font-size: 11px; font-weight: 700; flex: none; }
+    .src-card .body { padding: 0 12px 12px 38px; color: var(--muted); font-size: 13px; white-space: pre-wrap; }
+
+    /* skeleton */
+    .skeleton .line { height: 12px; border-radius: 6px; margin: 9px 0;
+      background: linear-gradient(90deg, var(--chip) 25%, var(--line) 37%, var(--chip) 63%);
+      background-size: 400% 100%; animation: shimmer 1.3s ease infinite; }
+    @keyframes shimmer { 0% { background-position: 100% 0; } 100% { background-position: 0 0; } }
+
+    /* composer */
+    .composer { border-top: 1px solid var(--line); background: var(--surface); padding: 14px 20px; }
+    .composer-inner { max-width: 760px; margin: 0 auto; }
+    .composer .box { display: flex; gap: 10px; align-items: flex-end;
+      border: 1px solid var(--line-strong); border-radius: 14px; padding: 8px 8px 8px 14px; background: var(--surface); }
+    .composer .box:focus-within { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+    .composer textarea { flex: 1; border: 0; resize: none; background: transparent; color: var(--ink);
+      font: inherit; font-size: 15px; max-height: 160px; padding: 6px 0; }
+    .composer textarea:focus { outline: none; }
+    .composer .hint { color: var(--faint); font-size: 12px; margin-top: 8px; display: flex; justify-content: space-between; gap: 10px; }
+    .send { width: 38px; height: 38px; border-radius: 10px; flex: none; padding: 0; }
+
+    .toast { position: fixed; left: 50%; transform: translateX(-50%); bottom: 20px; z-index: 30;
+      background: var(--ink); color: var(--surface); padding: 10px 16px; border-radius: 10px; font-size: 13.5px;
+      box-shadow: var(--shadow-lg); opacity: 0; pointer-events: none; transition: opacity .2s, transform .2s; }
+    .toast.show { opacity: 1; transform: translateX(-50%) translateY(-2px); }
+    .toast.err { background: var(--err); color: #fff; }
+
+    .status { font-size: 12.5px; margin-top: 8px; min-height: 16px; }
+    .status.ok { color: var(--ok); } .status.err { color: var(--err); }
+    .spinner { display: inline-block; width: 13px; height: 13px; border: 2px solid currentColor;
+      border-right-color: transparent; border-radius: 50%; animation: spin .7s linear infinite; vertical-align: -2px; margin-right: 6px; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .banner { display: none; margin: 12px 20px 0; background: var(--warn-bg); color: var(--warn-ink);
+      border: 1px solid color-mix(in srgb, var(--warn-ink) 30%, transparent); padding: 9px 13px; border-radius: 10px; font-size: 13px; }
+
+    .scrim { display: none; }
+    /* ---- Responsive ---- */
+    @media (max-width: 860px) {
+      .app { grid-template-columns: 1fr; }
+      .sidebar { position: fixed; z-index: 20; width: min(86vw, 320px); height: 100dvh; left: 0; top: 0;
+        transform: translateX(-100%); transition: transform .22s ease; box-shadow: var(--shadow-lg); }
+      .app.nav-open .sidebar { transform: translateX(0); }
+      .hamburger { display: inline-flex; }
+      .scrim { display: block; position: fixed; inset: 0; background: rgba(4,6,12,.4); z-index: 15; opacity: 0;
+        pointer-events: none; transition: opacity .2s; }
+      .app.nav-open .scrim { opacity: 1; pointer-events: auto; }
+    }
+  </style>
+</head>
+<body>
+  <div class="app" id="app">
+    <div class="scrim" id="scrim"></div>
+
+    <!-- Sidebar -->
+    <aside class="sidebar" id="sidebar">
+      <div class="brand"><span class="dot">R</span><h1>ragchat</h1></div>
+
+      <div class="side-section">
+        <div class="side-label">Sources</div>
+        <div class="uploader">
+          <label class="file-drop" for="file">
+            <div><strong>Choose a file</strong> to upload</div>
+            <div class="file-name" id="fileName">.md · .txt · .pdf · .docx</div>
+          </label>
+          <input id="file" type="file" accept=".md,.markdown,.txt,.text,.pdf,.docx" />
+          <button class="btn btn-primary btn-block" id="ingestBtn">Ingest document</button>
+          <div id="ingestStatus" class="status"></div>
+        </div>
+        <div class="sources-list" id="sourcesList" style="margin-top:10px;">
+          <div class="empty-note" id="sourcesEmpty">No sources yet. Upload one to begin.</div>
+        </div>
+      </div>
+
+      <div class="side-section">
+        <div class="side-label">
+          <span>Model keys</span>
+          <span class="pill" id="modePill"><span class="d"></span><span id="modeText">shared demo keys</span></span>
+        </div>
+        <details id="keysDetails">
+          <summary class="btn btn-ghost btn-block" style="justify-content:space-between;">Use your own keys <span aria-hidden="true">＋</span></summary>
+          <div class="keys-form">
+            <div class="field"><label for="cohereKey">Cohere API key</label>
+              <input id="cohereKey" type="password" autocomplete="off" placeholder="co-…" /></div>
+            <div class="field"><label for="googleKey">Google Gemini API key</label>
+              <input id="googleKey" type="password" autocomplete="off" placeholder="AIza…" /></div>
+            <div class="side-actions">
+              <button class="btn btn-primary" id="saveKeys">Use my keys</button>
+              <button class="btn btn-ghost" id="clearKeys">Clear</button>
+            </div>
+            <div id="keysStatus" class="status"></div>
+            <div class="keys-help">
+              Sent only with your requests, <strong>never stored on the server</strong>. Keys from
+              <a href="https://dashboard.cohere.com/api-keys" target="_blank" rel="noopener">Cohere</a> ·
+              <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">Google AI Studio</a>.
+            </div>
+          </div>
+        </details>
+      </div>
+
+      <div class="sidebar-foot">
+        FastAPI · pgvector · LangChain · Cohere · Gemini · <a href="/docs">API</a>
+      </div>
+    </aside>
+
+    <!-- Main -->
+    <main class="main">
+      <div class="topbar">
+        <button class="hamburger" id="hamburger" aria-label="Toggle sidebar">☰</button>
+        <div>
+          <h2>Ask your documents</h2>
+          <div class="sub">Answers grounded in your uploaded content — with sources.</div>
+        </div>
+        <button class="icon-btn" id="themeBtn" title="Toggle theme">◐ Theme</button>
+      </div>
+
+      <div id="banner" class="banner"></div>
+
+      <div class="thread" id="thread">
+        <div class="thread-inner" id="threadInner">
+          <div class="empty-state" id="emptyState">
+            <div class="big">
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M9 15h6M9 11h2"/></svg>
+            </div>
+            <h3>Upload a document to start</h3>
+            <p>Add a source in the sidebar, then ask questions answered only from its contents.</p>
+          </div>
+        </div>
+      </div>
+
+      <div class="composer">
+        <div class="composer-inner">
+          <div class="box">
+            <textarea id="question" rows="1" placeholder="Ask a question about your document…"></textarea>
+            <button class="btn btn-primary send" id="askBtn" title="Ask (⌘/Ctrl + Enter)" disabled aria-label="Ask">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 2 11 13"/><path d="M22 2 15 22l-4-9-9-4z"/></svg>
+            </button>
+          </div>
+          <div class="hint">
+            <span id="remaining"></span>
+            <span>⌘/Ctrl + Enter to send</span>
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <div class="toast" id="toast"></div>
+
+  <script>
+    const $ = (id) => document.getElementById(id);
+    const app = $("app");
+
+    // ---- theme ----
+    const themeBtn = $("themeBtn");
+    const savedTheme = localStorage.getItem("theme");
+    if (savedTheme) document.documentElement.setAttribute("data-theme", savedTheme);
+    themeBtn.addEventListener("click", () => {
+      const cur = document.documentElement.getAttribute("data-theme");
+      const next = cur === "dark" ? "light" : "dark";
+      document.documentElement.setAttribute("data-theme", next);
+      localStorage.setItem("theme", next);
+    });
+
+    // ---- mobile nav ----
+    const closeNav = () => app.classList.remove("nav-open");
+    $("hamburger").addEventListener("click", () => app.classList.toggle("nav-open"));
+    $("scrim").addEventListener("click", closeNav);
+
+    // ---- toast ----
+    let toastTimer;
+    function toast(msg, kind) {
+      const t = $("toast"); t.textContent = msg; t.className = "toast show" + (kind ? " " + kind : "");
+      clearTimeout(toastTimer); toastTimer = setTimeout(() => (t.className = "toast"), 3200);
+    }
+
+    function detailText(data) {
+      const d = data && data.detail; if (!d) return "";
+      return typeof d === "string" ? d : (d.message || JSON.stringify(d));
+    }
+    function setStatus(el, msg, kind) { el.className = "status" + (kind ? " " + kind : ""); el.innerHTML = msg; }
+    const spin = (t) => '<span class="spinner"></span>' + t;
+
+    // ---- BYO keys (per tab; headers only) ----
+    const byo = { cohere: sessionStorage.getItem("cohereKey") || "", google: sessionStorage.getItem("googleKey") || "" };
+    const hasKeys = () => Boolean(byo.cohere && byo.google);
+    const authHeaders = () => hasKeys() ? { "X-Cohere-Api-Key": byo.cohere, "X-Google-Api-Key": byo.google } : {};
+    function refreshMode() {
+      const pill = $("modePill");
+      if (hasKeys()) { $("modeText").textContent = "your own keys"; pill.classList.add("own");
+        $("cohereKey").value = byo.cohere; $("googleKey").value = byo.google; }
+      else { $("modeText").textContent = "shared demo keys"; pill.classList.remove("own"); }
+    }
+    $("saveKeys").addEventListener("click", () => {
+      byo.cohere = $("cohereKey").value.trim(); byo.google = $("googleKey").value.trim();
+      if (!hasKeys()) { setStatus($("keysStatus"), "Enter both keys.", "err"); return; }
+      sessionStorage.setItem("cohereKey", byo.cohere); sessionStorage.setItem("googleKey", byo.google);
+      setStatus($("keysStatus"), "✓ Using your keys (this tab).", "ok"); refreshMode(); toast("Now using your own keys");
+    });
+    $("clearKeys").addEventListener("click", () => {
+      byo.cohere = ""; byo.google = ""; sessionStorage.removeItem("cohereKey"); sessionStorage.removeItem("googleKey");
+      $("cohereKey").value = ""; $("googleKey").value = ""; setStatus($("keysStatus"), "Back to shared keys.", ""); refreshMode();
+    });
+    refreshMode();
+
+    // ---- readiness ----
+    async function checkReadiness() {
+      try { const r = await fetch("/health"); if (!r.ok) throw 0; $("banner").style.display = "none"; }
+      catch { $("banner").textContent = "Waking the service up… (free hosting sleeps when idle). Retrying…";
+        $("banner").style.display = "block"; setTimeout(checkReadiness, 3000); }
+    }
+
+    // ---- ingest ----
+    let hasCorpus = false;
+    const fileEl = $("file"), ingestBtn = $("ingestBtn");
+    fileEl.addEventListener("change", () => { $("fileName").textContent = fileEl.files[0] ? fileEl.files[0].name : ".md · .txt · .pdf · .docx"; });
+    ingestBtn.addEventListener("click", async () => {
+      const file = fileEl.files[0];
+      if (!file) { setStatus($("ingestStatus"), "Choose a file first.", "err"); return; }
+      ingestBtn.disabled = true; setStatus($("ingestStatus"), spin("Ingesting & embedding…"));
+      try {
+        const form = new FormData(); form.append("file", file);
+        const r = await fetch("/ingest/file", { method: "POST", body: form, headers: authHeaders() });
+        const data = await r.json();
+        if (!r.ok) throw new Error(detailText(data) || ("Error " + r.status));
+        hasCorpus = true; $("askBtn").disabled = false;
+        setStatus($("ingestStatus"), "✓ " + data.sections_written + " sections indexed.", "ok");
+        addSource(file.name, data.sections_written);
+        toast("Document ingested — ask away"); closeNav();
+      } catch (e) { setStatus($("ingestStatus"), "✕ " + e.message, "err"); }
+      finally { ingestBtn.disabled = false; }
+    });
+    function addSource(name, sections) {
+      $("sourcesEmpty").style.display = "none";
+      const el = document.createElement("div"); el.className = "source-item";
+      el.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg><div class="meta"><div class="fn"></div><div class="sub"></div></div>';
+      el.querySelector(".fn").textContent = name;
+      el.querySelector(".sub").textContent = sections + " section" + (sections === 1 ? "" : "s") + " · current source";
+      const list = $("sourcesList"); list.querySelectorAll(".source-item").forEach(n => n.remove());
+      list.appendChild(el);
+    }
+
+    // ---- ask ----
+    const questionEl = $("question"), askBtn = $("askBtn"), threadInner = $("threadInner"), thread = $("thread");
+    questionEl.addEventListener("input", () => { questionEl.style.height = "auto"; questionEl.style.height = Math.min(questionEl.scrollHeight, 160) + "px"; });
+    questionEl.addEventListener("keydown", (e) => { if ((e.metaKey || e.ctrlKey) && e.key === "Enter" && !askBtn.disabled) askBtn.click(); });
+    askBtn.addEventListener("click", ask);
+
+    function scrollDown() { thread.scrollTop = thread.scrollHeight; }
+    function esc(s) { const d = document.createElement("div"); d.textContent = s; return d.innerHTML; }
+
+    async function ask() {
+      const q = questionEl.value.trim();
+      if (!q) return;
+      if (!hasCorpus) { toast("Upload a document first", "err"); return; }
+      const empty = $("emptyState"); if (empty) empty.remove();
+      askBtn.disabled = true;
+
+      const turn = document.createElement("div"); turn.className = "turn";
+      const qEl = document.createElement("div"); qEl.className = "q"; qEl.textContent = q;
+      const aEl = document.createElement("div"); aEl.className = "a";
+      aEl.innerHTML = '<div class="skeleton"><div class="line" style="width:92%"></div><div class="line" style="width:98%"></div><div class="line" style="width:70%"></div></div>';
+      turn.appendChild(qEl); turn.appendChild(aEl); threadInner.appendChild(turn);
+      questionEl.value = ""; questionEl.style.height = "auto"; scrollDown();
+
+      try {
+        const r = await fetch("/ask", { method: "POST",
+          headers: { "content-type": "application/json", ...authHeaders() }, body: JSON.stringify({ question: q }) });
+        const data = await r.json();
+        if (r.status === 429 && data.detail && data.detail.byok_required) {
+          aEl.innerHTML = '<div class="status err">✕ ' + esc(data.detail.message) + '</div>';
+          $("keysDetails").open = true; app.classList.add("nav-open"); toast("Free limit reached — add your keys", "err");
+          return;
+        }
+        if (!r.ok) throw new Error(detailText(data) || ("Error " + r.status));
+        const left = r.headers.get("X-Free-Remaining");
+        $("remaining").textContent = left !== null ? (left + " free question" + (left === "1" ? "" : "s") + " left today") : "";
+        renderAnswer(aEl, data);
+      } catch (e) { aEl.innerHTML = '<div class="status err">✕ ' + esc(e.message) + '</div>'; }
+      finally { askBtn.disabled = false; scrollDown(); }
+    }
+
+    function renderAnswer(aEl, data) {
+      aEl.innerHTML = "";
+      const ans = document.createElement("div"); ans.className = "answer-text"; ans.textContent = data.answer; aEl.appendChild(ans);
+      if (data.sources && data.sources.length) {
+        const wrap = document.createElement("div"); wrap.className = "srcs";
+        wrap.innerHTML = '<div class="srcs-label">Sources</div>';
+        const chips = document.createElement("div"); chips.className = "chips";
+        const cards = document.createElement("div");
+        data.sources.forEach((s, i) => {
+          const title = (s.metadata && s.metadata.title) ? s.metadata.title : ("Source " + (i + 1));
+          const chip = document.createElement("button"); chip.className = "chip";
+          chip.innerHTML = '<span class="n">' + (i + 1) + '</span>'; chip.appendChild(document.createTextNode(title));
+          const card = document.createElement("details"); card.className = "src-card";
+          card.innerHTML = '<summary><span class="n">' + (i + 1) + '</span><span></span></summary><div class="body"></div>';
+          card.querySelector("summary span:last-child").textContent = title;
+          card.querySelector(".body").textContent = s.content;
+          chip.addEventListener("click", () => { card.open = !card.open; if (card.open) card.scrollIntoView({ behavior: "smooth", block: "nearest" }); });
+          chips.appendChild(chip); cards.appendChild(card);
+        });
+        wrap.appendChild(chips); wrap.appendChild(cards); aEl.appendChild(wrap);
+      }
+    }
+
+    checkReadiness();
+  </script>
+</body>
+</html>

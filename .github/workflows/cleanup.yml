@@ -1,0 +1,37 @@
+name: Cleanup expired sessions
+
+# Render's free tier has no cron, so scheduled cleanup runs here.
+# Only DATABASE_URL is needed — dropping expired collections requires no provider keys.
+on:
+  schedule:
+    - cron: "0 * * * *" # hourly (UTC); GitHub may delay under load — fine for cleanup
+  workflow_dispatch: {} # allow manual runs from the Actions tab
+
+concurrency:
+  group: cleanup
+  cancel-in-progress: false
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install package
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e .
+
+      - name: Purge expired sessions
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          # Not used by cleanup, but Settings validation requires them to be present.
+          COHERE_API_KEY: "unused-by-cleanup"
+          GOOGLE_API_KEY: "unused-by-cleanup"
+        run: ragchat cleanup

@@ -1,0 +1,29 @@
+# Render Blueprint — deploy the web UI + API for free.
+# Database is external (Neon); set the three secrets in the Render dashboard.
+# Expired-session cleanup runs via GitHub Actions (Render's free tier has no cron):
+# see .github/workflows/cleanup.yml. Full instructions in DEPLOY.md.
+
+services:
+  # The FastAPI service: JSON API + built-in web UI at /.
+  - type: web
+    name: askyourdoc
+    runtime: docker
+    dockerfilePath: ./docker/Dockerfile
+    dockerContext: .
+    plan: free
+    healthCheckPath: /health
+    envVars:
+      - key: DATABASE_URL          # Neon pooled connection string (sslmode=require)
+        sync: false
+      - key: COHERE_API_KEY
+        sync: false
+      - key: GOOGLE_API_KEY
+        sync: false
+      - key: SESSION_TTL_HOURS
+        value: "24"
+      - key: DAILY_REQUEST_BUDGET
+        value: "1000"
+      - key: MAX_UPLOAD_BYTES
+        value: "2097152"           # 2 MiB
+      - key: LOG_LEVEL
+        value: "INFO"
