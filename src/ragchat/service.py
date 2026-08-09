@@ -24,17 +24,25 @@ from datetime import UTC, datetime, timedelta
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
+from uuid import uuid4
 
 from langchain_core.documents import Document
 from langchain_core.runnables import Runnable
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
+from ragchat.audit.checklist import Checklist
+from ragchat.audit.classifier import Classifier
+from ragchat.audit.engine import evaluate
+from ragchat.audit.evidence import ClassifiedDocument, ExtractedField, PacketEvidence
+from ragchat.audit.extractor import Extractor
+from ragchat.audit.report import GapReport
 from ragchat.config import Settings, get_settings
 from ragchat.db import repository
-from ragchat.errors import FileTooLargeError, TooManySectionsError
+from ragchat.errors import FileTooLargeError, TooManyFilesError, TooManySectionsError
 from ragchat.ingestion.extractors import extract_sections
 from ragchat.ingestion.parser import Section, parse_markdown_file
+from ragchat.ingestion.router import DocumentContent, route
 
 logger = logging.getLogger(__name__)
 
@@ -297,6 +305,178 @@ def purge_expired_sessions() -> int:
 
     logger.info("Purged %d expired sessions", len(expired))
     return len(expired)
+
+
+@dataclass(frozen=True, slots=True)
+class AuditResult:
+    """The outcome of auditing a packet: its id, the checklist used, and the Gap Report."""
+
+    packet_id: str
+    checklist_id: str
+    report: GapReport
+
+
+class AuditService:
+    """Audit a submission packet against a checklist, for a single session.
+
+    Orchestrates the Phase 1 pipeline — intake router -> classifier -> extractor ->
+    gap engine — then persists the packet and its per-document classification/extraction.
+    All model-facing dependencies are injected (``router``/``classifier``/``extractor``),
+    so tests drive the whole flow with deterministic fakes and no network.
+    """
+
+    def __init__(
+        self,
+        *,
+        session_id: str,
+        session_factory: Callable[[], Session],
+        checklist: Checklist,
+        classifier: Classifier,
+        extractor: Extractor,
+        router: Callable[[str, bytes], DocumentContent] = route,
+        ttl_hours: int = 24,
+        max_files: int = 25,
+        max_upload_bytes: int = 2 * 1024 * 1024,
+    ) -> None:
+        self._session_id = session_id
+        self._session_factory = session_factory
+        self._checklist = checklist
+        self._classifier = classifier
+        self._extractor = extractor
+        self._router = router
+        self._ttl_hours = ttl_hours
+        self._max_files = max_files
+        self._max_upload_bytes = max_upload_bytes
+
+    @property
+    def session_id(self) -> str:
+        return self._session_id
+
+    @property
+    def max_files(self) -> int:
+        return self._max_files
+
+    @property
+    def max_upload_bytes(self) -> int:
+        return self._max_upload_bytes
+
+    def audit_packet(self, files: Sequence[tuple[str, bytes]]) -> AuditResult:
+        """Audit ``files`` (``(filename, data)`` pairs) and return the Gap Report.
+
+        Enforces the per-packet file cap before any model call. Persists the packet and its
+        documents atomically; a mid-run failure rolls back so no partial packet is stored.
+        """
+        if not files:
+            raise ValueError("a packet must contain at least one file")
+        if len(files) > self._max_files:
+            raise TooManyFilesError(f"Packet has {len(files)} files; limit is {self._max_files}.")
+
+        classified: list[ClassifiedDocument] = []
+        rows: list[dict[str, Any]] = []
+        seen: set[str] = set()
+        for filename, data in files:
+            doc_id = filename
+            suffix = 1
+            while doc_id in seen:  # keep doc ids unique when filenames collide
+                suffix += 1
+                doc_id = f"{filename}#{suffix}"
+            seen.add(doc_id)
+
+            content = self._router(filename, data)
+            classification = self._classifier.classify(content, self._checklist)
+            fields: dict[str, ExtractedField] = {}
+            if classification.doc_type is not None:
+                fields = self._extractor.extract(
+                    doc_id, content, classification.doc_type, self._checklist
+                )
+            classified.append(
+                ClassifiedDocument(
+                    doc_id=doc_id,
+                    doc_type=classification.doc_type,
+                    confidence=classification.confidence,
+                    fields=fields,
+                )
+            )
+            rows.append(
+                {
+                    "filename": filename,
+                    "doc_type": classification.doc_type,
+                    "classification_confidence": classification.confidence,
+                    "fields": _serialize_fields(fields),
+                    "raw_text": content.text,
+                }
+            )
+
+        report = evaluate(self._checklist, PacketEvidence(tuple(classified)))
+
+        packet_id = uuid4().hex
+        db = self._session_factory()
+        try:
+            expires_at = datetime.now(UTC) + timedelta(hours=self._ttl_hours)
+            repository.upsert_session(db, self._session_id, expires_at)
+            repository.create_packet(db, packet_id, self._session_id, self._checklist.id)
+            for row in rows:
+                repository.add_packet_document(db, packet_id=packet_id, **row)
+            db.commit()
+            logger.info(
+                "Audited packet %s (%d files) for session %s",
+                packet_id,
+                len(files),
+                self._session_id,
+            )
+            return AuditResult(packet_id=packet_id, checklist_id=self._checklist.id, report=report)
+        except Exception:
+            db.rollback()
+            logger.exception("Audit failed for session %s; rolled back", self._session_id)
+            raise
+        finally:
+            db.close()
+
+
+def _serialize_fields(fields: dict[str, ExtractedField]) -> dict[str, Any] | None:
+    """Render extracted fields to a JSON-storable dict (or ``None`` when empty)."""
+    if not fields:
+        return None
+    out: dict[str, Any] = {}
+    for name, field in fields.items():
+        out[name] = {
+            "value": field.value,
+            "confidence": field.confidence,
+            "snippet": field.source.snippet if field.source is not None else None,
+        }
+    return out
+
+
+def build_audit_service(session_id: str, *, google_key: str | None = None) -> AuditService:
+    """Wire a fully configured, session-scoped :class:`AuditService`.
+
+    The audit path needs only the Gemini model (no embeddings / pgvector). ``google_key``,
+    when supplied, is a bring-your-own key used to build the model per request and never
+    persisted.
+    """
+    from ragchat.audit.checklist import get_checklist
+    from ragchat.audit.classifier import GeminiClassifier
+    from ragchat.audit.extractor import GeminiExtractor
+    from ragchat.db.engine import get_session_factory, init_db
+    from ragchat.rag.llm import build_vision_llm
+
+    init_db()
+    settings = get_settings()
+    # The multimodal model handles both the text and scanned-image paths, so the audit
+    # pipeline uses it throughout rather than the text-only chat model.
+    llm = build_vision_llm(settings, google_key=google_key)
+    checklist = get_checklist(settings.active_checklist)
+
+    return AuditService(
+        session_id=session_id,
+        session_factory=get_session_factory(),
+        checklist=checklist,
+        classifier=GeminiClassifier(llm),
+        extractor=GeminiExtractor(llm),
+        ttl_hours=settings.session_ttl_hours,
+        max_files=settings.max_files_per_packet,
+        max_upload_bytes=settings.max_upload_bytes,
+    )
 
 
 def build_session_service(

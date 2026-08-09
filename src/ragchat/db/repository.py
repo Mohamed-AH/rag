@@ -14,7 +14,7 @@ from typing import Any, cast
 from sqlalchemy import CursorResult, delete, func, select
 from sqlalchemy.orm import Session as DbSession
 
-from ragchat.db.models import KnowledgeBase, Session, UsageCounter
+from ragchat.db.models import KnowledgeBase, Packet, PacketDocument, Session, UsageCounter
 from ragchat.ingestion.parser import Section
 
 # --- Sessions -------------------------------------------------------------
@@ -81,6 +81,68 @@ def get_all_sections(db: DbSession, session_id: str) -> list[Section]:
     )
     rows = db.execute(stmt).scalars().all()
     return [Section(title=row.title, content=row.content) for row in rows]
+
+
+# --- Packets (Packet Auditor; always scoped by session) -------------------
+
+
+def create_packet(db: DbSession, packet_id: str, session_id: str, checklist_id: str) -> None:
+    """Create a packet owned by ``session_id`` within the caller's transaction."""
+    db.add(Packet(id=packet_id, session_id=session_id, checklist_id=checklist_id))
+    db.flush()
+
+
+def add_packet_document(
+    db: DbSession,
+    *,
+    packet_id: str,
+    filename: str,
+    doc_type: str | None = None,
+    classification_confidence: float | None = None,
+    fields: dict[str, Any] | None = None,
+    raw_text: str | None = None,
+) -> PacketDocument:
+    """Add one document to a packet and return the persisted row."""
+    doc = PacketDocument(
+        packet_id=packet_id,
+        filename=filename,
+        doc_type=doc_type,
+        classification_confidence=classification_confidence,
+        fields=fields,
+        raw_text=raw_text,
+    )
+    db.add(doc)
+    db.flush()
+    return doc
+
+
+def get_packet(db: DbSession, session_id: str, packet_id: str) -> Packet | None:
+    """Return the packet iff it belongs to ``session_id`` (else ``None``).
+
+    Scoping by session id in the query is the isolation invariant: one tenant can never
+    read another's packet even by guessing its id.
+    """
+    stmt = select(Packet).where(Packet.id == packet_id, Packet.session_id == session_id)
+    return db.execute(stmt).scalar_one_or_none()
+
+
+def list_packet_documents(db: DbSession, session_id: str, packet_id: str) -> list[PacketDocument]:
+    """Return a packet's documents, but only if the packet belongs to ``session_id``."""
+    stmt = (
+        select(PacketDocument)
+        .join(Packet, PacketDocument.packet_id == Packet.id)
+        .where(Packet.id == packet_id, Packet.session_id == session_id)
+        .order_by(PacketDocument.id)
+    )
+    return list(db.execute(stmt).scalars().all())
+
+
+def delete_packet(db: DbSession, session_id: str, packet_id: str) -> None:
+    """Delete a packet (and cascade its documents), scoped to ``session_id``."""
+    packet = get_packet(db, session_id, packet_id)
+    if packet is not None:
+        db.delete(packet)
+        db.flush()
 
 
 # --- Usage counters (durable daily metering) ------------------------------

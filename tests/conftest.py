@@ -21,9 +21,13 @@ from sqlalchemy import create_engine, event
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
+from ragchat.audit.checklist import CUSTOMS_CHECKLIST, Checklist
+from ragchat.audit.classifier import Classification
+from ragchat.audit.evidence import ExtractedField
 from ragchat.db.models import Base
+from ragchat.ingestion.router import DocumentContent
 from ragchat.rag.pipeline import build_rag_chain
-from ragchat.service import IngestLimits, RAGService
+from ragchat.service import AuditService, IngestLimits, RAGService
 
 # --- Fakes ----------------------------------------------------------------
 
@@ -59,6 +63,30 @@ class FakeVectorStore:
         if self.fail_on_add:
             raise RuntimeError("simulated embedding failure")
         self.documents.extend(documents)
+
+
+class FakeClassifier:
+    """Scripted classifier: maps a document's filename to a canned classification."""
+
+    def __init__(self, by_filename: dict[str, Classification]) -> None:
+        self._by_filename = by_filename
+
+    def classify(self, content: DocumentContent, checklist: Checklist) -> Classification:
+        return self._by_filename.get(
+            content.filename, Classification(doc_type=None, confidence=0.0)
+        )
+
+
+class FakeExtractor:
+    """Scripted extractor: maps a document's id to canned extracted fields."""
+
+    def __init__(self, by_doc_id: dict[str, dict[str, ExtractedField]]) -> None:
+        self._by_doc_id = by_doc_id
+
+    def extract(
+        self, doc_id: str, content: DocumentContent, doc_type: str, checklist: Checklist
+    ) -> dict[str, ExtractedField]:
+        return dict(self._by_doc_id.get(doc_id, {}))
 
 
 # --- Fixtures -------------------------------------------------------------
@@ -148,6 +176,32 @@ def rag_service(
 ) -> RAGService:
     """A single session-scoped service wired with SQLite + fakes."""
     return make_service("session_a", vector_store=fake_vector_store, documents=sample_documents)
+
+
+@pytest.fixture
+def make_audit_service(
+    session_factory: Callable[[], Session],
+) -> Callable[..., AuditService]:
+    """Factory building a session-scoped audit service backed by SQLite + scripted fakes."""
+
+    def _make(
+        session_id: str = "session_a",
+        *,
+        classifier: FakeClassifier,
+        extractor: FakeExtractor,
+        checklist: Checklist = CUSTOMS_CHECKLIST,
+        max_files: int = 25,
+    ) -> AuditService:
+        return AuditService(
+            session_id=session_id,
+            session_factory=session_factory,
+            checklist=checklist,
+            classifier=classifier,
+            extractor=extractor,
+            max_files=max_files,
+        )
+
+    return _make
 
 
 @pytest.fixture

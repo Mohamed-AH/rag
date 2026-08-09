@@ -17,6 +17,8 @@ from ragchat.api.guards import Guards
 from ragchat.api.schemas import (
     AskRequest,
     AskResponse,
+    AuditResponse,
+    GapReportSchema,
     HealthResponse,
     IngestResponse,
     SourceSchema,
@@ -25,10 +27,11 @@ from ragchat.db import repository
 from ragchat.errors import (
     EmptyDocumentError,
     FileTooLargeError,
+    TooManyFilesError,
     TooManySectionsError,
     UnsupportedFileTypeError,
 )
-from ragchat.service import RAGService, build_session_service
+from ragchat.service import AuditService, RAGService, build_audit_service, build_session_service
 
 logger = logging.getLogger(__name__)
 
@@ -76,6 +79,15 @@ def get_service(request: Request, session_id: str = Depends(get_session_id)) -> 
     """
     cohere_key, google_key = _byo_keys(request)
     return build_session_service(session_id, cohere_key=cohere_key, google_key=google_key)
+
+
+def get_audit_service(request: Request, session_id: str = Depends(get_session_id)) -> AuditService:
+    """Build a session-scoped audit service, honoring a per-request BYO Google key.
+
+    Overridden in tests to inject a fake.
+    """
+    _, google_key = _byo_keys(request)
+    return build_audit_service(session_id, google_key=google_key)
 
 
 def get_db_session_factory() -> Callable[[], DbSession]:
@@ -300,3 +312,59 @@ async def ingest_file(
         # Embedding/provider failures return clean JSON (429 for quota, else 502).
         raise _map_provider_error(exc, "ingest") from exc
     return IngestResponse(sections_written=result.sections_written)
+
+
+@router.post(
+    "/audit",
+    response_model=AuditResponse,
+    tags=["audit"],
+    dependencies=[Depends(guard_ingest)],
+)
+async def audit_packet(
+    files: list[UploadFile] = File(...),
+    service: AuditService = Depends(get_audit_service),
+) -> AuditResponse:
+    """Audit a submission packet (several files) against the active checklist.
+
+    Reads each file bounded by the per-file size cap and enforces the packet's file-count
+    cap before any model call, so an oversized or over-large packet never incurs cost.
+    """
+    limit = service.max_upload_bytes
+    if len(files) > service.max_files:
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail=f"Packet exceeds the {service.max_files}-file limit.",
+        )
+
+    payload: list[tuple[str, bytes]] = []
+    for upload in files:
+        data = await upload.read(limit + 1)
+        if len(data) > limit:
+            raise HTTPException(
+                status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                detail=f"File '{upload.filename}' exceeds the {limit}-byte limit.",
+            )
+        payload.append((upload.filename or "upload", data))
+
+    try:
+        result = service.audit_packet(payload)
+    except TooManyFilesError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, detail=str(exc)
+        ) from exc
+    except UnsupportedFileTypeError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE, detail=str(exc)
+        ) from exc
+    except (EmptyDocumentError, ValueError) as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
+        ) from exc
+    except Exception as exc:
+        raise _map_provider_error(exc, "audit") from exc
+
+    return AuditResponse(
+        packet_id=result.packet_id,
+        checklist_id=result.checklist_id,
+        report=GapReportSchema.from_report(result.report),
+    )

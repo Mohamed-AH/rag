@@ -62,6 +62,44 @@ def ask(
 
 
 @app.command()
+def audit(
+    paths: list[str] = typer.Argument(..., help="Packet files to audit (.pdf/.docx/.txt/images)."),
+) -> None:
+    """Audit a packet of files against the active checklist and print the Gap Report."""
+    configure_logging(get_settings().log_level)
+    from pathlib import Path
+
+    from ragchat.audit.report import FindingStatus
+    from ragchat.service import build_audit_service
+
+    files = [(Path(p).name, Path(p).read_bytes()) for p in paths]
+    service = build_audit_service(_CLI_SESSION_ID)
+    result = service.audit_packet(files)
+
+    verdict = "CLEAR — ready to file" if result.report.is_clear else "GAPS FOUND"
+    color = typer.colors.GREEN if result.report.is_clear else typer.colors.YELLOW
+    typer.secho(f"\n{result.checklist_id}: {verdict}", fg=color, bold=True)
+
+    buckets = (
+        ("MISSING", FindingStatus.MISSING, typer.colors.RED, result.report.missing),
+        ("DEFICIENT", FindingStatus.DEFICIENT, typer.colors.RED, result.report.deficient),
+        (
+            "NEEDS REVIEW",
+            FindingStatus.NEEDS_REVIEW,
+            typer.colors.YELLOW,
+            result.report.needs_review,
+        ),
+        ("PRESENT", FindingStatus.PRESENT, typer.colors.GREEN, result.report.present),
+    )
+    for label, _status, bucket_color, findings in buckets:
+        if not findings:
+            continue
+        typer.secho(f"\n{label} ({len(findings)}):", fg=bucket_color, bold=True)
+        for finding in findings:
+            typer.echo(f"  - {finding.summary}")
+
+
+@app.command()
 def cleanup() -> None:
     """Purge sessions whose retention window has elapsed (run on a schedule)."""
     configure_logging(get_settings().log_level)
