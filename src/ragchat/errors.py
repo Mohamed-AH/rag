@@ -25,3 +25,15 @@ class TooManySectionsError(IngestError):
 
 class EmptyDocumentError(IngestError):
     """The uploaded file contained no extractable text."""
+
+
+class TooManyFilesError(IngestError):
+    """A submitted packet contains more files than the configured cap allows."""
+
+
+class UnclassifiableDocumentError(IngestError):
+    """A packet document could not be matched to any known document type."""
+
+
+class UnknownChecklistError(ValueError):
+    """A checklist was requested by an id that is not registered."""

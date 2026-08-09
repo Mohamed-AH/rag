@@ -81,6 +81,23 @@ class Settings(BaseSettings):
         default=150, ge=0, description="Overlap between adjacent chunks."
     )
 
+    # --- Packet auditor ----------------------------------------------------
+    active_checklist: str = Field(
+        default="customs",
+        description="Id of the checklist a packet is audited against (see "
+        "ragchat.audit.checklist). v1 ships 'customs'.",
+    )
+    max_files_per_packet: int = Field(
+        default=25,
+        ge=1,
+        description="Maximum number of files accepted in a single audited packet.",
+    )
+    vision_model: str = Field(
+        default="gemini-flash-latest",
+        description="Gemini multimodal model for the scanned-document extraction path "
+        "(Phase 1). Uses the multimodal 'flash' tier rather than the text 'flash-lite'.",
+    )
+
     # --- Rate limiting & cost control (in-memory; per instance) ------------
     rate_limit_asks_per_minute: int = Field(
         default=10,
