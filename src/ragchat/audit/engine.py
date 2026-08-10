@@ -3,7 +3,7 @@
 The engine does no I/O, no model calls, and no database access — it evaluates an already
 classified-and-extracted packet against a checklist. That purity is deliberate: it makes
 the whole audit outcome reproducible and unit-testable with hand-built evidence (Phase 0),
-independent of the classifier/extractor that will feed it real data (Phase 1).
+independent of the analyzer that will feed it real data (Phase 1).
 """
 
 from __future__ import annotations

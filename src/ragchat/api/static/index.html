@@ -388,6 +388,14 @@
       if (!t) return r.ok ? {} : { detail: "The server closed the connection (Error " + r.status + "). Please retry." };
       try { return JSON.parse(t); } catch { return { detail: t.slice(0, 300) }; }
     }
+    // Never let a request hang forever: abort after `ms` so the UI shows a clear message
+    // instead of spinning (e.g. a cold-starting free instance or an exhausted quota).
+    async function fetchWithTimeout(url, opts, ms) {
+      const ctrl = new AbortController();
+      const id = setTimeout(() => ctrl.abort(), ms);
+      try { return await fetch(url, { ...opts, signal: ctrl.signal }); }
+      finally { clearTimeout(id); }
+    }
     function setStatus(el, msg, kind) { el.className = "status" + (kind ? " " + kind : ""); el.innerHTML = msg; }
     const spin = (t) => '<span class="spinner"></span>' + t;
 
@@ -550,6 +558,8 @@
       auditBtn.disabled = files.length === 0;
       $("auditFilesLabel").textContent = files.length ? (files.length + " file" + (files.length === 1 ? "" : "s") + " selected") :
         "Commercial invoice · packing list · bill of lading · certificate of origin";
+      // Each run is independent — clear the previous report/status so a new run reads fresh.
+      $("auditResult").innerHTML = ""; setStatus($("auditStatus"), "");
     });
 
     auditBtn.addEventListener("click", async () => {
@@ -559,12 +569,17 @@
       setStatus($("auditStatus"), spin("Auditing packet…"));
       try {
         const form = new FormData(); files.forEach(f => form.append("files", f));
-        const r = await fetch("/audit", { method: "POST", body: form, headers: auditHeaders() });
+        const r = await fetchWithTimeout("/audit", { method: "POST", body: form, headers: auditHeaders() }, 150000);
         const data = await readJson(r);
         if (!r.ok) throw new Error(detailText(data) || ("Error " + r.status));
         setStatus($("auditStatus"), "");
         renderReport(data);
-      } catch (e) { setStatus($("auditStatus"), "✕ " + e.message, "err"); }
+      } catch (e) {
+        const msg = e.name === "AbortError"
+          ? "Timed out (>150s). The free instance may be waking or the shared quota is exhausted — retry, or add your own Google key (left)."
+          : e.message;
+        setStatus($("auditStatus"), "✕ " + msg, "err");
+      }
       finally { auditBtn.disabled = false; }
     });
 

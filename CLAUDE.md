@@ -38,8 +38,9 @@ Pure domain package `src/ragchat/audit/` — clean DAG, no I/O:
   `CUSTOMS_CHECKLIST`, `get_checklist`. **Rules are data.**
 - `engine.py` — `evaluate(checklist, evidence)`; pure; Layer 1 presence + unrecognized-doc
   handling + Layer 2 rules gated on their docs being confidently present.
-- `classifier.py` / `extractor.py` — `Classifier`/`Extractor` **protocols** + `Gemini*`
-  adapters (the only model-facing code; injected so tests use fakes).
+- `analyzer.py` — `Analyzer` **protocol** + `GeminiAnalyzer`: **single-pass** classify+extract
+  in one structured call per document (the only model-facing code; injected so tests use a
+  fake). Takes a `select_llm(content)` callable for per-path model routing.
 
 Pipeline & surfaces:
 - `ingestion/router.py` — `route()` picks text path (wraps existing `extractors.py`) vs
@@ -55,8 +56,8 @@ Pipeline & surfaces:
 - `cli.py` — `ragchat audit <files...>`. `api/static/index.html` — Ask/Audit mode toggle.
 
 Tests: `tests/unit/test_{report,checklist,gap_engine,router,audit_service,audit_api}.py`;
-hermetic eval `tests/eval/` (gold Customs packets, precision/recall gate at 1.0). Fakes
-`FakeClassifier`/`FakeExtractor` live in `tests/conftest.py`.
+hermetic eval `tests/eval/` (gold Customs packets, precision/recall gate at 1.0). Fake
+`FakeAnalyzer`/`FakeAnalysis` live in `tests/conftest.py`.
 
 ## Locked decisions (do not re-open without reason)
 
@@ -126,6 +127,8 @@ three coupled issues, all now fixed on the feature branch:
    routing** — text-path docs now use `LLM_MODEL` (lite, higher free quota) and only
    scans/images use `VISION_MODEL`. `GeminiClassifier`/`GeminiExtractor` take a
    `select_llm(content)` callable; `build_audit_service` wires text_llm vs vision_llm.
+   Classify+extract were later **merged into one call** (`audit/analyzer.py`,
+   `GeminiAnalyzer`) — halves calls/latency per document (2N → N).
 2. **Health-check crash / worker starvation.** `/audit` is async but did blocking model
    I/O; a quota-retry storm tied up the single free-tier worker → `/health` timed out →
    Render restarted the instance. Fix: `await run_in_threadpool(service.audit_packet, …)`

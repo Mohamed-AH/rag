@@ -22,8 +22,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from ragchat.audit.checklist import CUSTOMS_CHECKLIST, Checklist
-from ragchat.audit.classifier import Classification
-from ragchat.audit.evidence import ExtractedField
+from ragchat.audit.evidence import ClassifiedDocument, ExtractedField
 from ragchat.db.models import Base
 from ragchat.ingestion.router import DocumentContent
 from ragchat.rag.pipeline import build_rag_chain
@@ -65,28 +64,35 @@ class FakeVectorStore:
         self.documents.extend(documents)
 
 
-class FakeClassifier:
-    """Scripted classifier: maps a document's filename to a canned classification."""
+class FakeAnalysis:
+    """One document's scripted single-pass result (classification + fields)."""
 
-    def __init__(self, by_filename: dict[str, Classification]) -> None:
+    def __init__(
+        self,
+        doc_type: str | None,
+        confidence: float,
+        fields: dict[str, ExtractedField] | None = None,
+    ) -> None:
+        self.doc_type = doc_type
+        self.confidence = confidence
+        self.fields = fields or {}
+
+
+class FakeAnalyzer:
+    """Scripted analyzer: maps a document's filename to a canned classification + fields."""
+
+    def __init__(self, by_filename: dict[str, FakeAnalysis]) -> None:
         self._by_filename = by_filename
 
-    def classify(self, content: DocumentContent, checklist: Checklist) -> Classification:
-        return self._by_filename.get(
-            content.filename, Classification(doc_type=None, confidence=0.0)
+    def analyze(
+        self, doc_id: str, content: DocumentContent, checklist: Checklist
+    ) -> ClassifiedDocument:
+        a = self._by_filename.get(content.filename)
+        if a is None:
+            return ClassifiedDocument(doc_id=doc_id, doc_type=None, confidence=0.0, fields={})
+        return ClassifiedDocument(
+            doc_id=doc_id, doc_type=a.doc_type, confidence=a.confidence, fields=dict(a.fields)
         )
-
-
-class FakeExtractor:
-    """Scripted extractor: maps a document's id to canned extracted fields."""
-
-    def __init__(self, by_doc_id: dict[str, dict[str, ExtractedField]]) -> None:
-        self._by_doc_id = by_doc_id
-
-    def extract(
-        self, doc_id: str, content: DocumentContent, doc_type: str, checklist: Checklist
-    ) -> dict[str, ExtractedField]:
-        return dict(self._by_doc_id.get(doc_id, {}))
 
 
 # --- Fixtures -------------------------------------------------------------
@@ -187,8 +193,7 @@ def make_audit_service(
     def _make(
         session_id: str = "session_a",
         *,
-        classifier: FakeClassifier,
-        extractor: FakeExtractor,
+        analyzer: FakeAnalyzer,
         checklist: Checklist = CUSTOMS_CHECKLIST,
         max_files: int = 25,
     ) -> AuditService:
@@ -196,8 +201,7 @@ def make_audit_service(
             session_id=session_id,
             session_factory=session_factory,
             checklist=checklist,
-            classifier=classifier,
-            extractor=extractor,
+            analyzer=analyzer,
             max_files=max_files,
         )
 

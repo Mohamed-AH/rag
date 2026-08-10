@@ -1,7 +1,7 @@
 """The evidence contract the gap-analysis engine consumes.
 
-Phase 0 hand-builds these objects in tests; Phase 1's classifier and extractor will
-produce them from real files. Keeping the input contract in its own module (separate from
+Phase 0 hand-builds these objects in tests; Phase 1's analyzer produces them from real
+files. Keeping the input contract in its own module (separate from
 the *checklist* that describes requirements and the *report* that is the output) gives the
 engine a single, stable input type and keeps the package a clean dependency DAG.
 """

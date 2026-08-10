@@ -103,7 +103,7 @@ class PacketDocument(Base):
     """One file within a :class:`Packet`, with its classification and extracted fields.
 
     ``doc_type`` / ``classification_confidence`` / ``fields`` are populated by the Phase 1
-    classifier and extractor; in Phase 0 the columns exist but may be null.
+    analyzer (single-pass classify+extract); in Phase 0 the columns exist but may be null.
     """
 
     __tablename__ = "packet_documents"
