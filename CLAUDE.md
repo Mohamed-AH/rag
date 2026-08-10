@@ -116,6 +116,31 @@ Deploy = Render Blueprint (`render.yaml`) + Neon; secrets `DATABASE_URL`,
 `COHERE_API_KEY`, `GOOGLE_API_KEY`. Audit uses `GOOGLE_API_KEY` + `VISION_MODEL`
 (default `gemini-flash-latest`); tune via env `MAX_FILES_PER_PACKET`, `ACTIVE_CHECKLIST`.
 
+### First live deploy (2026-08-10) — findings + fixes applied
+
+Deploy to Render + Neon succeeded (migration `0002` applied). First real audit surfaced
+three coupled issues, all now fixed on the feature branch:
+
+1. **Free-tier quota exhaustion.** `VISION_MODEL=gemini-flash-latest` → `gemini-3.6-flash`,
+   free tier **20 req/day**; each file = 2 calls (classify+extract). Fix: **per-path model
+   routing** — text-path docs now use `LLM_MODEL` (lite, higher free quota) and only
+   scans/images use `VISION_MODEL`. `GeminiClassifier`/`GeminiExtractor` take a
+   `select_llm(content)` callable; `build_audit_service` wires text_llm vs vision_llm.
+2. **Health-check crash / worker starvation.** `/audit` is async but did blocking model
+   I/O; a quota-retry storm tied up the single free-tier worker → `/health` timed out →
+   Render restarted the instance. Fix: `await run_in_threadpool(service.audit_packet, …)`
+   so blocking work never starves the event loop. Also bounded provider retries
+   (`max_retries=2`) so quota errors fail fast.
+3. **"Unexpected end of JSON input" in the UI.** Frontend assumed every response is JSON; a
+   dropped/empty body (from #2) produced a cryptic error. Fix: defensive `readJson()` +
+   audit now accepts a **Google-only** BYO key (`_byo_google_key`) so live testing can run
+   on a billed key without a Cohere key.
+
+**Still to validate live (pending quota/billing):** real classification accuracy per doc
+type, extraction accuracy per field (esp. numbers + whether snippets point at the value),
+false missing/deficient rate (target ~0), the scanned-PDF/image multimodal path, and
+latency/cost per packet. Paste observations below.
+
 <!-- Paste live-test observations here before starting Phase 2:
      - which doc types classified well / poorly
      - extraction accuracy per field

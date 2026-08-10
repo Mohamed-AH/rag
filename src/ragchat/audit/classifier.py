@@ -8,6 +8,7 @@ and a confidence the engine uses to decide ``present`` vs ``needs_review``.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any, Protocol
 
@@ -51,15 +52,20 @@ def _prompt(checklist: Checklist) -> str:
 
 
 class GeminiClassifier:
-    """Production classifier backed by a structured Gemini call."""
+    """Production classifier backed by a structured Gemini call.
 
-    def __init__(self, llm: Any) -> None:
-        self._llm = llm
+    Takes a ``select_llm`` callable rather than a fixed model so the pipeline can route
+    text-path documents to the cheaper, higher-free-quota lite model and reserve the
+    multimodal model for scans/images.
+    """
+
+    def __init__(self, select_llm: Callable[[DocumentContent], Any]) -> None:
+        self._select_llm = select_llm
 
     def classify(self, content: DocumentContent, checklist: Checklist) -> Classification:
         from ragchat.rag.llm import build_document_message
 
-        structured = self._llm.with_structured_output(_ClassificationResult)
+        structured = self._select_llm(content).with_structured_output(_ClassificationResult)
         message = build_document_message(_prompt(checklist), content)
         result: _ClassificationResult = structured.invoke([message])
 

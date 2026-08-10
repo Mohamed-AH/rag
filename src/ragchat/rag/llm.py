@@ -13,40 +13,55 @@ from ragchat.config import Settings, get_settings
 from ragchat.ingestion.router import DocumentContent
 
 
-def build_llm(settings: Settings | None = None, *, google_key: str | None = None) -> Any:
+def build_llm(
+    settings: Settings | None = None,
+    *,
+    google_key: str | None = None,
+    max_retries: int | None = None,
+) -> Any:
     """Construct the Gemini chat model.
 
     ``google_key`` overrides the configured shared key (used for bring-your-own-keys
-    requests); it is never persisted or logged. Returns ``Any`` because the provider SDK
-    is imported lazily.
+    requests); it is never persisted or logged. ``max_retries`` bounds provider retries so
+    a quota/rate error fails fast instead of blocking a worker. Returns ``Any`` because the
+    provider SDK is imported lazily.
     """
     settings = settings or get_settings()
     key = google_key or settings.google_api_key.get_secret_value()
 
     from langchain_google_genai import ChatGoogleGenerativeAI
 
+    extra = {} if max_retries is None else {"max_retries": max_retries}
     return ChatGoogleGenerativeAI(
         model=settings.llm_model,
         google_api_key=key,
         temperature=settings.llm_temperature,
+        **extra,
     )
 
 
-def build_vision_llm(settings: Settings | None = None, *, google_key: str | None = None) -> Any:
+def build_vision_llm(
+    settings: Settings | None = None,
+    *,
+    google_key: str | None = None,
+    max_retries: int | None = None,
+) -> Any:
     """Construct the multimodal Gemini model used for the scanned-document path.
 
     Same provider as :func:`build_llm` but on the multimodal tier (``vision_model``) so it
-    can read page images and PDFs, not just text.
+    can read page images and PDFs, not just text. ``max_retries`` bounds provider retries.
     """
     settings = settings or get_settings()
     key = google_key or settings.google_api_key.get_secret_value()
 
     from langchain_google_genai import ChatGoogleGenerativeAI
 
+    extra = {} if max_retries is None else {"max_retries": max_retries}
     return ChatGoogleGenerativeAI(
         model=settings.vision_model,
         google_api_key=key,
         temperature=settings.llm_temperature,
+        **extra,
     )
 
 

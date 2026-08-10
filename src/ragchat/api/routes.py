@@ -12,6 +12,7 @@ from uuid import uuid4
 from fastapi import APIRouter, Depends, File, HTTPException, Request, Response, UploadFile, status
 from sqlalchemy import text
 from sqlalchemy.orm import Session as DbSession
+from starlette.concurrency import run_in_threadpool
 
 from ragchat.api.guards import Guards
 from ragchat.api.schemas import (
@@ -72,6 +73,15 @@ def _byo_keys(request: Request) -> tuple[str | None, str | None]:
     return None, None
 
 
+def _byo_google_key(request: Request) -> str | None:
+    """Extract a bring-your-own Google key alone.
+
+    The audit path uses only Gemini (no Cohere embeddings), so a caller can supply just
+    their Google key to run on their own quota — unlike ``/ask``, which needs both.
+    """
+    return (request.headers.get(GOOGLE_KEY_HEADER) or "").strip() or None
+
+
 def get_service(request: Request, session_id: str = Depends(get_session_id)) -> RAGService:
     """Build a session-scoped service, honoring per-request BYO keys if supplied.
 
@@ -86,8 +96,7 @@ def get_audit_service(request: Request, session_id: str = Depends(get_session_id
 
     Overridden in tests to inject a fake.
     """
-    _, google_key = _byo_keys(request)
-    return build_audit_service(session_id, google_key=google_key)
+    return build_audit_service(session_id, google_key=_byo_google_key(request))
 
 
 def get_db_session_factory() -> Callable[[], DbSession]:
@@ -347,7 +356,9 @@ async def audit_packet(
         payload.append((upload.filename or "upload", data))
 
     try:
-        result = service.audit_packet(payload)
+        # Offload the blocking pipeline (model calls + DB) to a worker thread so a slow or
+        # retrying provider call can never starve the event loop and fail health checks.
+        result = await run_in_threadpool(service.audit_packet, payload)
     except TooManyFilesError as exc:
         raise HTTPException(
             status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, detail=str(exc)

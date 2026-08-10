@@ -11,6 +11,7 @@ structured call.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import Any, Protocol
 
 from pydantic import BaseModel, Field
@@ -51,10 +52,14 @@ def _prompt(doc_type_name: str, specs: tuple[FieldSpec, ...]) -> str:
 
 
 class GeminiExtractor:
-    """Production extractor backed by a structured Gemini call."""
+    """Production extractor backed by a structured Gemini call.
 
-    def __init__(self, llm: Any) -> None:
-        self._llm = llm
+    Takes a ``select_llm`` callable so text-path documents use the cheaper, higher-quota
+    lite model and only scans/images spend the multimodal model.
+    """
+
+    def __init__(self, select_llm: Callable[[DocumentContent], Any]) -> None:
+        self._select_llm = select_llm
 
     def extract(
         self, doc_id: str, content: DocumentContent, doc_type: str, checklist: Checklist
@@ -67,7 +72,7 @@ class GeminiExtractor:
 
         dt = checklist.doc_type(doc_type)
         name = dt.name if dt is not None else doc_type
-        structured = self._llm.with_structured_output(_ExtractionResult)
+        structured = self._select_llm(content).with_structured_output(_ExtractionResult)
         message = build_document_message(_prompt(name, specs), content)
         result: _ExtractionResult = structured.invoke([message])
 
