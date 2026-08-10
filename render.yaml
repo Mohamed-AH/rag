@@ -25,5 +25,12 @@ services:
         value: "1000"
       - key: MAX_UPLOAD_BYTES
         value: "2097152"           # 2 MiB
+      # --- Packet auditor (Phase 1) ---
+      - key: ACTIVE_CHECKLIST
+        value: "customs"
+      - key: MAX_FILES_PER_PACKET
+        value: "25"
+      - key: VISION_MODEL          # multimodal Gemini for the scanned/image path
+        value: "gemini-flash-latest"
       - key: LOG_LEVEL
         value: "INFO"
