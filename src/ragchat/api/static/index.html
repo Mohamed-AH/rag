@@ -381,24 +381,42 @@
       const d = data && data.detail; if (!d) return "";
       return typeof d === "string" ? d : (d.message || JSON.stringify(d));
     }
+    // Parse a response body defensively: an empty/dropped body (e.g. a worker restart or a
+    // provider timeout) must surface as a clean message, not "Unexpected end of JSON input".
+    async function readJson(r) {
+      let t = ""; try { t = await r.text(); } catch { t = ""; }
+      if (!t) return r.ok ? {} : { detail: "The server closed the connection (Error " + r.status + "). Please retry." };
+      try { return JSON.parse(t); } catch { return { detail: t.slice(0, 300) }; }
+    }
     function setStatus(el, msg, kind) { el.className = "status" + (kind ? " " + kind : ""); el.innerHTML = msg; }
     const spin = (t) => '<span class="spinner"></span>' + t;
 
     // ---- BYO keys (per tab; headers only) ----
     const byo = { cohere: sessionStorage.getItem("cohereKey") || "", google: sessionStorage.getItem("googleKey") || "" };
     const hasKeys = () => Boolean(byo.cohere && byo.google);
+    // Ask/ingest need both keys; Audit needs only Google (no Cohere embeddings on that path).
     const authHeaders = () => hasKeys() ? { "X-Cohere-Api-Key": byo.cohere, "X-Google-Api-Key": byo.google } : {};
+    const auditHeaders = () => {
+      const h = {};
+      if (byo.google) h["X-Google-Api-Key"] = byo.google;
+      if (byo.cohere) h["X-Cohere-Api-Key"] = byo.cohere;
+      return h;
+    };
     function refreshMode() {
       const pill = $("modePill");
-      if (hasKeys()) { $("modeText").textContent = "your own keys"; pill.classList.add("own");
-        $("cohereKey").value = byo.cohere; $("googleKey").value = byo.google; }
+      $("cohereKey").value = byo.cohere; $("googleKey").value = byo.google;
+      if (hasKeys()) { $("modeText").textContent = "your own keys"; pill.classList.add("own"); }
+      else if (byo.google) { $("modeText").textContent = "your Google key"; pill.classList.add("own"); }
       else { $("modeText").textContent = "shared demo keys"; pill.classList.remove("own"); }
     }
     $("saveKeys").addEventListener("click", () => {
       byo.cohere = $("cohereKey").value.trim(); byo.google = $("googleKey").value.trim();
-      if (!hasKeys()) { setStatus($("keysStatus"), "Enter both keys.", "err"); return; }
+      if (!byo.google && !byo.cohere) { setStatus($("keysStatus"), "Enter your Google key (Audit), plus Cohere for Ask.", "err"); return; }
       sessionStorage.setItem("cohereKey", byo.cohere); sessionStorage.setItem("googleKey", byo.google);
-      setStatus($("keysStatus"), "✓ Using your keys (this tab).", "ok"); refreshMode(); toast("Now using your own keys");
+      const msg = hasKeys() ? "✓ Using your keys (this tab)."
+        : byo.google ? "✓ Google key set — Audit runs on your quota. Add Cohere to use Ask."
+        : "Add your Google key to run audits on your own quota.";
+      setStatus($("keysStatus"), msg, byo.google ? "ok" : "err"); refreshMode(); toast("Key settings updated");
     });
     $("clearKeys").addEventListener("click", () => {
       byo.cohere = ""; byo.google = ""; sessionStorage.removeItem("cohereKey"); sessionStorage.removeItem("googleKey");
@@ -424,7 +442,7 @@
       try {
         const form = new FormData(); form.append("file", file);
         const r = await fetch("/ingest/file", { method: "POST", body: form, headers: authHeaders() });
-        const data = await r.json();
+        const data = await readJson(r);
         if (!r.ok) throw new Error(detailText(data) || ("Error " + r.status));
         hasCorpus = true; $("askBtn").disabled = false;
         setStatus($("ingestStatus"), "✓ " + data.sections_written + " sections indexed.", "ok");
@@ -469,7 +487,7 @@
       try {
         const r = await fetch("/ask", { method: "POST",
           headers: { "content-type": "application/json", ...authHeaders() }, body: JSON.stringify({ question: q }) });
-        const data = await r.json();
+        const data = await readJson(r);
         if (r.status === 429 && data.detail && data.detail.byok_required) {
           aEl.innerHTML = '<div class="status err">✕ ' + esc(data.detail.message) + '</div>';
           $("keysDetails").open = true; app.classList.add("nav-open"); toast("Free limit reached — add your keys", "err");
@@ -541,8 +559,8 @@
       setStatus($("auditStatus"), spin("Auditing packet…"));
       try {
         const form = new FormData(); files.forEach(f => form.append("files", f));
-        const r = await fetch("/audit", { method: "POST", body: form, headers: authHeaders() });
-        const data = await r.json();
+        const r = await fetch("/audit", { method: "POST", body: form, headers: auditHeaders() });
+        const data = await readJson(r);
         if (!r.ok) throw new Error(detailText(data) || ("Error " + r.status));
         setStatus($("auditStatus"), "");
         renderReport(data);

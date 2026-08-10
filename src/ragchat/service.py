@@ -458,21 +458,28 @@ def build_audit_service(session_id: str, *, google_key: str | None = None) -> Au
     from ragchat.audit.classifier import GeminiClassifier
     from ragchat.audit.extractor import GeminiExtractor
     from ragchat.db.engine import get_session_factory, init_db
-    from ragchat.rag.llm import build_vision_llm
+    from ragchat.ingestion.router import IMAGE
+    from ragchat.rag.llm import build_llm, build_vision_llm
 
     init_db()
     settings = get_settings()
-    # The multimodal model handles both the text and scanned-image paths, so the audit
-    # pipeline uses it throughout rather than the text-only chat model.
-    llm = build_vision_llm(settings, google_key=google_key)
+    # Route by path to conserve quota: text-path documents use the cheaper, higher
+    # free-quota lite chat model; only scans/images spend the multimodal model. Retries
+    # are bounded so a quota/rate error fails fast instead of tying up a worker.
+    text_llm = build_llm(settings, google_key=google_key, max_retries=2)
+    vision_llm = build_vision_llm(settings, google_key=google_key, max_retries=2)
+
+    def select_llm(content: DocumentContent) -> Any:
+        return vision_llm if content.mode == IMAGE else text_llm
+
     checklist = get_checklist(settings.active_checklist)
 
     return AuditService(
         session_id=session_id,
         session_factory=get_session_factory(),
         checklist=checklist,
-        classifier=GeminiClassifier(llm),
-        extractor=GeminiExtractor(llm),
+        classifier=GeminiClassifier(select_llm),
+        extractor=GeminiExtractor(select_llm),
         ttl_hours=settings.session_ttl_hours,
         max_files=settings.max_files_per_packet,
         max_upload_bytes=settings.max_upload_bytes,

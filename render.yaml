@@ -30,7 +30,11 @@ services:
         value: "customs"
       - key: MAX_FILES_PER_PACKET
         value: "25"
-      - key: VISION_MODEL          # multimodal Gemini for the scanned/image path
+      # Text-path docs use LLM_MODEL (lite tier, most generous free quota);
+      # only scans/images spend VISION_MODEL (multimodal).
+      - key: LLM_MODEL
+        value: "gemini-flash-lite-latest"
+      - key: VISION_MODEL
         value: "gemini-flash-latest"
       - key: LOG_LEVEL
         value: "INFO"
