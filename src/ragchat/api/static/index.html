@@ -219,6 +219,22 @@
     .finding .src { padding: 0 12px 12px 12px; font-size: 12.5px; color: var(--muted); }
     .finding .src .snip { background: var(--chip); border-radius: 6px; padding: 6px 8px; margin-top: 4px; white-space: pre-wrap; }
 
+    /* result header + run history */
+    .result-head { display: flex; align-items: center; gap: 12px; margin: 22px 0 2px; flex-wrap: wrap; }
+    .result-head .meta { color: var(--muted); font-size: 12.5px; }
+    .result-head .spacer { margin-left: auto; }
+    .btn-sm { padding: 6px 11px; font-size: 12.5px; }
+    .runs { margin-top: 28px; border-top: 1px solid var(--line); padding-top: 14px; }
+    .runs h4 { font-size: 11px; letter-spacing: .06em; text-transform: uppercase; color: var(--faint); margin: 0 0 10px; }
+    .run { display: flex; align-items: center; gap: 10px; padding: 9px 11px; border: 1px solid var(--line);
+      border-radius: var(--radius-sm); background: var(--surface); margin-bottom: 7px; cursor: pointer; text-align: left; width: 100%; }
+    .run:hover { border-color: var(--accent); }
+    .run.active { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-soft); }
+    .run .tag { font-size: 10.5px; font-weight: 700; padding: 2px 8px; border-radius: 999px; flex: none; }
+    .run .files { font-size: 13px; color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+    .run .when { margin-left: auto; font-size: 12px; color: var(--faint); flex: none; }
+    .run .count { font-size: 12px; color: var(--muted); flex: none; }
+
     .scrim { display: none; }
     /* ---- Responsive ---- */
     @media (max-width: 860px) {
@@ -328,6 +344,7 @@
           <button class="btn btn-primary btn-block" id="auditBtn" disabled>Audit packet</button>
           <div id="auditStatus" class="status"></div>
           <div id="auditResult"></div>
+          <div id="auditRuns" class="runs" style="display:none;"></div>
         </div>
       </div>
 
@@ -558,9 +575,24 @@
       auditBtn.disabled = files.length === 0;
       $("auditFilesLabel").textContent = files.length ? (files.length + " file" + (files.length === 1 ? "" : "s") + " selected") :
         "Commercial invoice · packing list · bill of lading · certificate of origin";
-      // Each run is independent — clear the previous report/status so a new run reads fresh.
+      // Each run is independent — clear the shown report/status so a new run reads fresh.
       $("auditResult").innerHTML = ""; setStatus($("auditStatus"), "");
+      currentRunId = null; renderRuns();
     });
+
+    // ---- run history (per-session; kept in the tab so a refresh keeps your audits) ----
+    let auditRuns = [];
+    let currentRunId = null;
+    try { auditRuns = JSON.parse(sessionStorage.getItem("auditRuns") || "[]"); } catch { auditRuns = []; }
+    function persistRuns() { try { sessionStorage.setItem("auditRuns", JSON.stringify(auditRuns.slice(0, 10))); } catch {} }
+    function ago(ts) {
+      const s = Math.round((Date.now() - ts) / 1000);
+      if (s < 60) return "just now";
+      const m = Math.round(s / 60); if (m < 60) return m + " min ago";
+      const h = Math.round(m / 60); if (h < 24) return h + "h ago";
+      return new Date(ts).toLocaleDateString();
+    }
+    const gapCount = (rep) => rep.missing.length + rep.deficient.length + rep.needs_review.length;
 
     auditBtn.addEventListener("click", async () => {
       const files = Array.from(auditFilesEl.files || []);
@@ -573,7 +605,9 @@
         const data = await readJson(r);
         if (!r.ok) throw new Error(detailText(data) || ("Error " + r.status));
         setStatus($("auditStatus"), "");
-        renderReport(data);
+        const run = { id: data.packet_id, at: Date.now(), files: files.map(f => f.name), report: data.report };
+        auditRuns.unshift(run); auditRuns = auditRuns.slice(0, 10); persistRuns();
+        showRun(run); renderRuns();
       } catch (e) {
         const msg = e.name === "AbortError"
           ? "Timed out (>150s). The free instance may be waking or the shared quota is exhausted — retry, or add your own Google key (left)."
@@ -583,15 +617,60 @@
       finally { auditBtn.disabled = false; }
     });
 
-    function renderReport(data) {
-      const rep = data.report, wrap = $("auditResult"); wrap.innerHTML = "";
-      const verdict = document.createElement("div"); verdict.className = "verdict";
+    function startNewAudit() {
+      auditFilesEl.value = ""; $("auditFileList").innerHTML = "";
+      auditBtn.disabled = true;
+      $("auditFilesLabel").textContent = "Commercial invoice · packing list · bill of lading · certificate of origin";
+      $("auditResult").innerHTML = ""; setStatus($("auditStatus"), "");
+      currentRunId = null; renderRuns();
+      document.querySelector("#auditView .audit-drop").scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+
+    function renderRuns() {
+      const wrap = $("auditRuns");
+      if (!auditRuns.length) { wrap.style.display = "none"; wrap.innerHTML = ""; return; }
+      wrap.style.display = "block"; wrap.innerHTML = "";
+      const h = document.createElement("h4"); h.textContent = "Recent audits (" + auditRuns.length + ")"; wrap.appendChild(h);
+      auditRuns.forEach(run => {
+        const gaps = gapCount(run.report);
+        const btn = document.createElement("button");
+        btn.className = "run" + (run.id === currentRunId ? " active" : "");
+        const tag = document.createElement("span");
+        tag.className = "tag " + (run.report.is_clear ? "clear" : "gaps");
+        tag.textContent = run.report.is_clear ? "CLEAR" : "GAPS";
+        const files = document.createElement("span"); files.className = "files";
+        files.textContent = run.files.join(", ");
+        const count = document.createElement("span"); count.className = "count";
+        count.textContent = run.report.is_clear ? "no gaps" : (gaps + " gap" + (gaps === 1 ? "" : "s"));
+        const when = document.createElement("span"); when.className = "when"; when.textContent = ago(run.at);
+        btn.append(tag, files, count, when);
+        btn.addEventListener("click", () => showRun(run));
+        wrap.appendChild(btn);
+      });
+    }
+
+    function showRun(run) {
+      currentRunId = run.id;
+      renderReport(run);
+      renderRuns();
+      $("auditResult").scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+
+    function renderReport(run) {
+      const rep = run.report, wrap = $("auditResult"); wrap.innerHTML = "";
+
+      const head = document.createElement("div"); head.className = "result-head";
       const tag = document.createElement("span");
       tag.className = "tag " + (rep.is_clear ? "clear" : "gaps");
       tag.textContent = rep.is_clear ? "CLEAR" : "GAPS FOUND";
-      verdict.appendChild(tag);
-      verdict.appendChild(document.createTextNode(rep.is_clear ? "Ready to file" : "Resolve the items below before filing"));
-      wrap.appendChild(verdict);
+      const meta = document.createElement("span"); meta.className = "meta";
+      meta.textContent = (rep.is_clear ? "Ready to file" : "Resolve the items below before filing")
+        + " · " + run.files.length + " file" + (run.files.length === 1 ? "" : "s") + " · " + ago(run.at);
+      const spacer = document.createElement("span"); spacer.className = "spacer";
+      const newBtn = document.createElement("button"); newBtn.className = "btn btn-ghost btn-sm";
+      newBtn.textContent = "＋ New audit"; newBtn.addEventListener("click", startNewAudit);
+      head.append(tag, meta, spacer, newBtn);
+      wrap.appendChild(head);
 
       const buckets = [
         ["Missing", rep.missing, "var(--err)"],
@@ -632,6 +711,10 @@
       }
       return el;
     }
+
+    // Restore this session's audit history (survives a page refresh within the tab).
+    if (auditRuns.length) { currentRunId = auditRuns[0].id; renderReport(auditRuns[0]); }
+    renderRuns();
 
     checkReadiness();
   </script>
