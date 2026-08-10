@@ -31,11 +31,10 @@ from langchain_core.runnables import Runnable
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
+from ragchat.audit.analyzer import Analyzer
 from ragchat.audit.checklist import Checklist
-from ragchat.audit.classifier import Classifier
 from ragchat.audit.engine import evaluate
 from ragchat.audit.evidence import ClassifiedDocument, ExtractedField, PacketEvidence
-from ragchat.audit.extractor import Extractor
 from ragchat.audit.report import GapReport
 from ragchat.config import Settings, get_settings
 from ragchat.db import repository
@@ -319,10 +318,11 @@ class AuditResult:
 class AuditService:
     """Audit a submission packet against a checklist, for a single session.
 
-    Orchestrates the Phase 1 pipeline — intake router -> classifier -> extractor ->
-    gap engine — then persists the packet and its per-document classification/extraction.
-    All model-facing dependencies are injected (``router``/``classifier``/``extractor``),
-    so tests drive the whole flow with deterministic fakes and no network.
+    Orchestrates the Phase 1 pipeline — intake router -> analyzer (single-pass
+    classify+extract) -> gap engine — then persists the packet and its per-document
+    classification/extraction. All model-facing dependencies are injected
+    (``router``/``analyzer``), so tests drive the whole flow with deterministic fakes and
+    no network.
     """
 
     def __init__(
@@ -331,8 +331,7 @@ class AuditService:
         session_id: str,
         session_factory: Callable[[], Session],
         checklist: Checklist,
-        classifier: Classifier,
-        extractor: Extractor,
+        analyzer: Analyzer,
         router: Callable[[str, bytes], DocumentContent] = route,
         ttl_hours: int = 24,
         max_files: int = 25,
@@ -341,8 +340,7 @@ class AuditService:
         self._session_id = session_id
         self._session_factory = session_factory
         self._checklist = checklist
-        self._classifier = classifier
-        self._extractor = extractor
+        self._analyzer = analyzer
         self._router = router
         self._ttl_hours = ttl_hours
         self._max_files = max_files
@@ -383,26 +381,14 @@ class AuditService:
             seen.add(doc_id)
 
             content = self._router(filename, data)
-            classification = self._classifier.classify(content, self._checklist)
-            fields: dict[str, ExtractedField] = {}
-            if classification.doc_type is not None:
-                fields = self._extractor.extract(
-                    doc_id, content, classification.doc_type, self._checklist
-                )
-            classified.append(
-                ClassifiedDocument(
-                    doc_id=doc_id,
-                    doc_type=classification.doc_type,
-                    confidence=classification.confidence,
-                    fields=fields,
-                )
-            )
+            doc = self._analyzer.analyze(doc_id, content, self._checklist)
+            classified.append(doc)
             rows.append(
                 {
                     "filename": filename,
-                    "doc_type": classification.doc_type,
-                    "classification_confidence": classification.confidence,
-                    "fields": _serialize_fields(fields),
+                    "doc_type": doc.doc_type,
+                    "classification_confidence": doc.confidence,
+                    "fields": _serialize_fields(doc.fields),
                     "raw_text": content.text,
                 }
             )
@@ -454,9 +440,8 @@ def build_audit_service(session_id: str, *, google_key: str | None = None) -> Au
     when supplied, is a bring-your-own key used to build the model per request and never
     persisted.
     """
+    from ragchat.audit.analyzer import GeminiAnalyzer
     from ragchat.audit.checklist import get_checklist
-    from ragchat.audit.classifier import GeminiClassifier
-    from ragchat.audit.extractor import GeminiExtractor
     from ragchat.db.engine import get_session_factory, init_db
     from ragchat.ingestion.router import IMAGE
     from ragchat.rag.llm import build_llm, build_vision_llm
@@ -478,8 +463,7 @@ def build_audit_service(session_id: str, *, google_key: str | None = None) -> Au
         session_id=session_id,
         session_factory=get_session_factory(),
         checklist=checklist,
-        classifier=GeminiClassifier(select_llm),
-        extractor=GeminiExtractor(select_llm),
+        analyzer=GeminiAnalyzer(select_llm),
         ttl_hours=settings.session_ttl_hours,
         max_files=settings.max_files_per_packet,
         max_upload_bytes=settings.max_upload_bytes,

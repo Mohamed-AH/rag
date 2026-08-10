@@ -14,29 +14,29 @@ from collections.abc import Callable
 import pytest
 from sqlalchemy.orm import Session
 
-from ragchat.audit.classifier import Classification
 from ragchat.audit.evidence import ExtractedField
 from ragchat.service import AuditService
-from tests.conftest import FakeClassifier, FakeExtractor
+from tests.conftest import FakeAnalysis, FakeAnalyzer
 from tests.eval.customs_packets import DOC_TEXT, PACKETS, EvalPacket
 
 
 def _run(packet: EvalPacket, make_audit_service: Callable[..., AuditService]) -> set[str]:
     """Audit a gold packet and return the requirement ids flagged as gaps."""
     files = [(doc.filename, DOC_TEXT) for doc in packet.docs]
-    classifier = FakeClassifier(
-        {doc.filename: Classification(doc.doc_type, doc.confidence) for doc in packet.docs}
-    )
-    extractor = FakeExtractor(
+    analyzer = FakeAnalyzer(
         {
-            doc.filename: {
-                name: ExtractedField(name=name, value=value, confidence=0.95)
-                for name, value in doc.fields.items()
-            }
+            doc.filename: FakeAnalysis(
+                doc.doc_type,
+                doc.confidence,
+                {
+                    name: ExtractedField(name=name, value=value, confidence=0.95)
+                    for name, value in doc.fields.items()
+                },
+            )
             for doc in packet.docs
         }
     )
-    service = make_audit_service(classifier=classifier, extractor=extractor)
+    service = make_audit_service(analyzer=analyzer)
     report = service.audit_packet(files).report
     return {f.requirement_id for f in (*report.missing, *report.deficient, *report.needs_review)}
 

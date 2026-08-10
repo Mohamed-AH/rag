@@ -5,8 +5,8 @@ The package is a clean dependency DAG built bottom-up:
 ``report`` (outputs) <- ``evidence`` (engine input) <- ``checklist`` (rubric) <- ``engine``.
 
 Everything here is pure — no I/O, no model calls, no database — so the whole audit outcome
-is deterministic and unit-testable from hand-built evidence. The classifier and extractor
-that produce real evidence from files arrive in Phase 1.
+is deterministic and unit-testable from hand-built evidence. The analyzer that produces
+real evidence from files (single-pass classify+extract) arrives in Phase 1.
 """
 
 from __future__ import annotations

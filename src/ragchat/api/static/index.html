@@ -558,6 +558,8 @@
       auditBtn.disabled = files.length === 0;
       $("auditFilesLabel").textContent = files.length ? (files.length + " file" + (files.length === 1 ? "" : "s") + " selected") :
         "Commercial invoice · packing list · bill of lading · certificate of origin";
+      // Each run is independent — clear the previous report/status so a new run reads fresh.
+      $("auditResult").innerHTML = ""; setStatus($("auditStatus"), "");
     });
 
     auditBtn.addEventListener("click", async () => {
