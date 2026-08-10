@@ -144,6 +144,12 @@ type, extraction accuracy per field (esp. numbers + whether snippets point at th
 false missing/deficient rate (target ~0), the scanned-PDF/image multimodal path, and
 latency/cost per packet. Paste observations below.
 
+**Sample fixtures for live testing:** `samples/customs/` holds one consistent shipment in
+two forms — `digital/*.pdf` (text-layer → text path) and `scanned/*.png` (rasterized →
+multimodal path) — plus a README of test scenarios and `generate.py` (fpdf2 + Pillow) to
+regenerate. Use the scanned set to exercise the still-unproven multimodal path; fold real
+observations into `tests/eval/` for Phase 2 calibration.
+
 <!-- Paste live-test observations here before starting Phase 2:
      - which doc types classified well / poorly
      - extraction accuracy per field
