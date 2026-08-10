@@ -93,9 +93,10 @@ class Settings(BaseSettings):
         description="Maximum number of files accepted in a single audited packet.",
     )
     vision_model: str = Field(
-        default="gemini-flash-latest",
-        description="Gemini multimodal model for the scanned-document extraction path "
-        "(Phase 1). Uses the multimodal 'flash' tier rather than the text 'flash-lite'.",
+        default="gemini-flash-lite-latest",
+        description="Gemini model for the scanned-document/image path. Flash-Lite is "
+        "natively multimodal, so the same high-free-quota lite tier reads scans too; "
+        "override with a heavier multimodal model only if real scans need more OCR accuracy.",
     )
 
     # --- Rate limiting & cost control (in-memory; per instance) ------------
