@@ -114,8 +114,11 @@ export. Regulated verticals (insurance/veterans) come after the engine is proven
 ## Live testing (Phase 1) — record findings here
 
 Deploy = Render Blueprint (`render.yaml`) + Neon; secrets `DATABASE_URL`,
-`COHERE_API_KEY`, `GOOGLE_API_KEY`. Audit uses `GOOGLE_API_KEY` + `VISION_MODEL`
-(default `gemini-flash-latest`); tune via env `MAX_FILES_PER_PACKET`, `ACTIVE_CHECKLIST`.
+`COHERE_API_KEY`, `GOOGLE_API_KEY`. Audit uses `GOOGLE_API_KEY`; both `LLM_MODEL` (text)
+and `VISION_MODEL` (scans) default to `gemini-flash-lite-latest` — Flash-Lite is natively
+multimodal, so one high-free-quota lite tier reads both. Bump `VISION_MODEL` to a heavier
+multimodal model only if real scans need more OCR. Tune `MAX_FILES_PER_PACKET`,
+`ACTIVE_CHECKLIST`.
 
 ### First live deploy (2026-08-10) — findings + fixes applied
 
@@ -124,11 +127,12 @@ three coupled issues, all now fixed on the feature branch:
 
 1. **Free-tier quota exhaustion.** `VISION_MODEL=gemini-flash-latest` → `gemini-3.6-flash`,
    free tier **20 req/day**; each file = 2 calls (classify+extract). Fix: **per-path model
-   routing** — text-path docs now use `LLM_MODEL` (lite, higher free quota) and only
-   scans/images use `VISION_MODEL`. `GeminiClassifier`/`GeminiExtractor` take a
-   `select_llm(content)` callable; `build_audit_service` wires text_llm vs vision_llm.
-   Classify+extract were later **merged into one call** (`audit/analyzer.py`,
-   `GeminiAnalyzer`) — halves calls/latency per document (2N → N).
+   routing** — text-path docs use `LLM_MODEL` (lite, higher free quota) and scans/images use
+   `VISION_MODEL` via a `select_llm(content)` callable. Classify+extract were later **merged
+   into one call** (`audit/analyzer.py`, `GeminiAnalyzer`) — halves calls/latency (2N → N).
+   Later still, since **Flash-Lite is natively multimodal**, `VISION_MODEL` was defaulted to
+   the same `gemini-flash-lite-latest` so scans also run on the generous lite quota (the
+   routing stays, letting VISION_MODEL be overridden to a heavier model if needed).
 2. **Health-check crash / worker starvation.** `/audit` is async but did blocking model
    I/O; a quota-retry storm tied up the single free-tier worker → `/health` timed out →
    Render restarted the instance. Fix: `await run_in_threadpool(service.audit_packet, …)`

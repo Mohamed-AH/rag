@@ -46,10 +46,11 @@ def build_vision_llm(
     google_key: str | None = None,
     max_retries: int | None = None,
 ) -> Any:
-    """Construct the multimodal Gemini model used for the scanned-document path.
+    """Construct the Gemini model used for the scanned-document/image path.
 
-    Same provider as :func:`build_llm` but on the multimodal tier (``vision_model``) so it
-    can read page images and PDFs, not just text. ``max_retries`` bounds provider retries.
+    Uses ``vision_model``, which defaults to the same natively-multimodal Flash-Lite tier
+    as :func:`build_llm` (so scans get the generous free quota); set it to a heavier
+    multimodal model when real scans need more OCR accuracy. ``max_retries`` bounds retries.
     """
     settings = settings or get_settings()
     key = google_key or settings.google_api_key.get_secret_value()

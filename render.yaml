@@ -30,11 +30,12 @@ services:
         value: "customs"
       - key: MAX_FILES_PER_PACKET
         value: "25"
-      # Text-path docs use LLM_MODEL (lite tier, most generous free quota);
-      # only scans/images spend VISION_MODEL (multimodal).
+      # Flash-Lite is natively multimodal, so one lite tier (most generous free quota)
+      # reads both text and scans. Point VISION_MODEL at a heavier multimodal model
+      # only if real scans need more OCR accuracy.
       - key: LLM_MODEL
         value: "gemini-flash-lite-latest"
       - key: VISION_MODEL
-        value: "gemini-flash-latest"
+        value: "gemini-flash-lite-latest"
       - key: LOG_LEVEL
         value: "INFO"
