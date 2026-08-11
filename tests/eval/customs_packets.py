@@ -48,6 +48,7 @@ def _complete_docs() -> list[EvalDoc]:
                 "country_of_origin": "China",
                 "currency": "USD",
                 "total_value": "10000",
+                "total_quantity": "200",
                 "exporter": "Acme Ltd",
                 "consignee": "Globex Inc",
             },
@@ -58,6 +59,7 @@ def _complete_docs() -> list[EvalDoc]:
             0.96,
             {
                 "total_value": "10000",
+                "total_quantity": "200",
                 "net_weight": "500",
                 "total_cartons": "20",
                 "exporter": "Acme Ltd",
@@ -111,4 +113,22 @@ PACKETS: list[EvalPacket] = [
         {"rule.origin_consistent"},
     ),
     EvalPacket("low_confidence_bol", _mutated("bol.txt", confidence=0.20), {"doc.bill_of_lading"}),
+    # Scenario 2 (live test 2026-08-11): invoice declares 200, packing list says 400.
+    EvalPacket(
+        "quantity_mismatch",
+        _mutated("packing.txt", total_quantity="400"),
+        {"rule.quantity_matches"},
+    ),
+    # Unit-laden numeric strings must parse, not fall to needs_review.
+    EvalPacket(
+        "units_in_weight",
+        _mutated("packing.txt", net_weight="500 kg", total_cartons="20 crates"),
+        set(),
+    ),
+    # Same entity at different granularity across docs must not flag a party mismatch.
+    EvalPacket(
+        "party_granularity",
+        _mutated("packing.txt", exporter="Exporter: Acme Ltd, Shenzhen, China"),
+        set(),
+    ),
 ]

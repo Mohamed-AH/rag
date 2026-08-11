@@ -14,7 +14,7 @@ def test_customs_checklist_shape() -> None:
         {"commercial_invoice", "packing_list", "bill_of_lading", "certificate_of_origin"}
     )
     assert len(CUSTOMS_CHECKLIST.document_requirements) == 4
-    assert len(CUSTOMS_CHECKLIST.field_rules) == 5
+    assert len(CUSTOMS_CHECKLIST.field_rules) == 6
 
 
 def test_requirements_reference_known_doc_types() -> None:

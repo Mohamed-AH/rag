@@ -153,11 +153,84 @@ def _norm_text(value: object) -> str:
     return " ".join(str(value).strip().lower().split())
 
 
+_NUM_RE = re.compile(r"[-+]?\d[\d,]*(?:\.\d+)?")
+
+
 def _as_float(value: object) -> float | None:
-    try:
-        return float(re.sub(r"[,$\s]", "", str(value)))
-    except (TypeError, ValueError):
+    """Pull the leading numeric token, tolerating units/currency/thousands separators.
+
+    Real extracted values carry units and symbols — ``"6,800.00 KG"``, ``"80 Crates"``,
+    ``"USD 10,000.00"``, ``"2,000 units"``. Strip to the first number so consistency rules
+    compare quantities, not strings, instead of bailing to ``needs_review``.
+    """
+    if value is None:
         return None
+    if isinstance(value, int | float):
+        return float(value)
+    match = _NUM_RE.search(str(value))
+    if match is None:
+        return None
+    try:
+        return float(match.group().replace(",", ""))
+    except ValueError:  # pragma: no cover - regex already guarantees a numeric shape
+        return None
+
+
+# Corporate-form and role words that carry no identifying signal for entity matching.
+_ENTITY_STOPWORDS = frozenset(
+    {
+        "ltd",
+        "limited",
+        "inc",
+        "incorporated",
+        "llc",
+        "co",
+        "company",
+        "corp",
+        "corporation",
+        "plc",
+        "gmbh",
+        "sa",
+        "bv",
+        "pvt",
+        "the",
+        "exporter",
+        "shipper",
+        "seller",
+        "consignee",
+        "buyer",
+        "importer",
+        "to",
+        "from",
+    }
+)
+
+
+def _entity_tokens(value: object) -> frozenset[str]:
+    """Identifying tokens of an entity name: alphanumerics minus form/role/stop words."""
+    return frozenset(
+        t
+        for t in re.split(r"[^a-z0-9]+", _norm_text(value))
+        if len(t) > 1 and t not in _ENTITY_STOPWORDS
+    )
+
+
+def _same_entity(a: object, b: object) -> bool:
+    """Whether two extracted party strings name the same entity, tolerating granularity.
+
+    The analyzer returns the same company at different granularity per document
+    (``"Acme Manufacturing Ltd"`` vs ``"Exporter: Acme Manufacturing Ltd, Shenzhen, China"``),
+    so exact equality falsely flags a mismatch. Match on containment or strong token overlap.
+    """
+    na, nb = _norm_text(a), _norm_text(b)
+    if not na or not nb:
+        return False
+    if na == nb or na in nb or nb in na:
+        return True
+    ta, tb = _entity_tokens(a), _entity_tokens(b)
+    if not ta or not tb:
+        return False
+    return len(ta & tb) / min(len(ta), len(tb)) >= 0.6
 
 
 def _close(a: float, b: float, tolerance: float) -> bool:
@@ -299,6 +372,60 @@ def _weight_count_consistent(evidence: PacketEvidence, ctx: RuleContext) -> Rule
 
 
 @_rule
+def _quantity_matches(evidence: PacketEvidence, ctx: RuleContext) -> RuleResult:
+    """Cross-document check: the total quantity on the invoice must equal the packing list's.
+
+    This is the classic under-declaration fraud — an invoice for 1,000 units against a
+    packing list (and weight) for 2,000. Quantity is compared only when both documents state
+    it; silence routes to needs_review rather than a false pass."""
+    inv = evidence.first("commercial_invoice")
+    pl = evidence.first("packing_list")
+    inv_f = inv.get("total_quantity") if inv is not None else None
+    pl_f = pl.get("total_quantity") if pl is not None else None
+    sources: tuple[SourcePointer, ...] = ()
+    if inv is not None:
+        sources += _ptr(inv_f, inv)
+    if pl is not None:
+        sources += _ptr(pl_f, pl)
+    if inv_f is None or pl_f is None:
+        return RuleResult(
+            FindingStatus.NEEDS_REVIEW,
+            "Total quantity is not stated on both the invoice and packing list — verify manually",
+            0.6,
+            sources,
+        )
+    conf = min(inv_f.confidence, pl_f.confidence)
+    if conf < ctx.min_field_confidence:
+        return RuleResult(
+            FindingStatus.NEEDS_REVIEW,
+            "Quantity read with low confidence — verify manually",
+            conf,
+            sources,
+        )
+    a, b = _as_float(inv_f.value), _as_float(pl_f.value)
+    if a is None or b is None:
+        return RuleResult(
+            FindingStatus.NEEDS_REVIEW,
+            "Quantities are not numeric — verify manually",
+            conf,
+            sources,
+        )
+    if _close(a, b, ctx.value_tolerance):
+        return RuleResult(
+            FindingStatus.PRESENT,
+            f"Total quantity matches across invoice and packing list ({inv_f.value})",
+            conf,
+            sources,
+        )
+    return RuleResult(
+        FindingStatus.DEFICIENT,
+        f"Quantity mismatch: invoice {inv_f.value} vs packing list {pl_f.value}",
+        conf,
+        sources,
+    )
+
+
+@_rule
 def _parties_aligned(evidence: PacketEvidence, ctx: RuleContext) -> RuleResult:
     mismatched: list[str] = []
     confidences: list[float] = []
@@ -309,8 +436,12 @@ def _parties_aligned(evidence: PacketEvidence, ctx: RuleContext) -> RuleResult:
         bl_f, bl = _field(evidence, ctx, "bill_of_lading", party)
         confidences += [inv_f.confidence, pl_f.confidence, bl_f.confidence]
         sources += _ptr(inv_f, inv) + _ptr(pl_f, pl) + _ptr(bl_f, bl)
-        values = {_norm_text(inv_f.value), _norm_text(pl_f.value), _norm_text(bl_f.value)}
-        if len(values) > 1:
+        values = [inv_f.value, pl_f.value, bl_f.value]
+        # Same entity if every pair matches tolerantly (containment / token overlap).
+        aligned = all(_same_entity(values[0], v) for v in values[1:]) and _same_entity(
+            values[1], values[2]
+        )
+        if not aligned:
             mismatched.append(party)
     conf = min(confidences) if confidences else 1.0
     if not mismatched:
@@ -342,8 +473,17 @@ CUSTOMS_CHECKLIST = Checklist(
                 FieldSpec("country_of_origin", "The declared country of origin of the goods."),
                 FieldSpec("currency", "The currency of the declared value (e.g. USD)."),
                 FieldSpec("total_value", "The total declared value/amount of the invoice."),
-                FieldSpec("exporter", "The exporter / shipper / seller name."),
-                FieldSpec("consignee", "The consignee / buyer / importer name."),
+                FieldSpec("total_quantity", "The total quantity of goods/units on the invoice."),
+                FieldSpec(
+                    "exporter",
+                    "The exporter/shipper/seller COMPANY NAME only — exclude any "
+                    "'Exporter:'/'Shipper:' label and the address.",
+                ),
+                FieldSpec(
+                    "consignee",
+                    "The consignee/buyer/importer COMPANY NAME only — exclude any label "
+                    "and the address.",
+                ),
             ),
         ),
         DocType(
@@ -351,10 +491,15 @@ CUSTOMS_CHECKLIST = Checklist(
             name="Packing List",
             fields=(
                 FieldSpec("total_value", "The total declared value/amount, if stated."),
+                FieldSpec("total_quantity", "The total quantity of goods/units packed."),
                 FieldSpec("net_weight", "The total net weight of the shipment."),
                 FieldSpec("total_cartons", "The total number of cartons/packages."),
-                FieldSpec("exporter", "The exporter / shipper name."),
-                FieldSpec("consignee", "The consignee / buyer name."),
+                FieldSpec(
+                    "exporter", "The exporter/shipper COMPANY NAME only (no label, no address)."
+                ),
+                FieldSpec(
+                    "consignee", "The consignee/buyer COMPANY NAME only (no label, no address)."
+                ),
             ),
         ),
         DocType(
@@ -363,8 +508,10 @@ CUSTOMS_CHECKLIST = Checklist(
             fields=(
                 FieldSpec("net_weight", "The total net weight of the shipment."),
                 FieldSpec("total_cartons", "The total number of cartons/packages."),
-                FieldSpec("exporter", "The shipper / exporter name."),
-                FieldSpec("consignee", "The consignee name."),
+                FieldSpec(
+                    "exporter", "The shipper/exporter COMPANY NAME only (no label, no address)."
+                ),
+                FieldSpec("consignee", "The consignee COMPANY NAME only (no label, no address)."),
             ),
         ),
         DocType(
@@ -401,6 +548,12 @@ CUSTOMS_CHECKLIST = Checklist(
             "Declared currency present and value matches the packing list",
             ("commercial_invoice", "packing_list"),
             _value_matches_packing_list,
+        ),
+        FieldRule(
+            "rule.quantity_matches",
+            "Total quantity agrees between commercial invoice and packing list",
+            ("commercial_invoice", "packing_list"),
+            _quantity_matches,
         ),
         FieldRule(
             "rule.weight_count",

@@ -19,9 +19,13 @@ checklist, not changing engine code.
 - **Phase 1 — DONE, merged to `main`.** Real files → Gap Report: intake router, Gemini
   classifier/extractor, `AuditService`, `POST /audit`, CLI `audit`, web UI Audit tab,
   hermetic eval.
-- **Phase 2 — NOT STARTED.** Held while Phase 1 is deployed to Render and tested live with
-  real sample packets. **Do not start Phase 2 until the user confirms live testing is
-  done** and shares findings.
+- **Phase 2 — IN PROGRESS.** Live testing confirmed the multimodal + combined-PDF paths;
+  three false-positive/robustness findings folded in so far (see log below):
+  robust numeric parsing (`_as_float` strips units/currency), tolerant party matching
+  (`_same_entity` containment/token-overlap + name-only extraction), and a new
+  cross-document **quantity** rule (`rule.quantity_matches`) catching under-declaration
+  fraud. Remaining Phase-2 work: broader financial↔physical reconciliation, confidence-
+  threshold calibration against *real* documents, more verticals.
 
 Feature branch for this work: `claude/rag-chat-pivot-plan-uufnkm` (Phase 0+1 already pulled
 into `main`). When resuming, branch fresh from latest `main`.
@@ -196,6 +200,23 @@ documents**: `_DocResult` carries a full `pages: list[int]` (+ `grouping_reason`
 prompt directs the model to scan every page for anchor headers and group pages by shared
 identifiers (invoice/BoL/container numbers) rather than assuming order — the single-call
 approach's whole-file view is what makes that possible. Doc ids read `packet.pdf (pages 2, 4)`.
+
+### Scenario 2 (2026-08-11) — combined-PDF split PROVEN; 3 Phase-2 fixes applied
+
+Live-ran an engineered combined PDF (`set2.pdf`: invoice 1,000 units vs packing-list
+2,000). Combined-PDF split worked (invoice+PL+BoL all detected from one file). Structural
+gaps caught (missing COO, missing PL total_value). Two engine gaps found → fixed:
+- **Numeric parsing** — `_as_float` rewritten to pull the leading numeric token, so
+  `"6,800.00 KG"`/`"80 Crates"`/`"USD 10,000.00"` parse instead of tripping needs_review.
+- **Party matching** — `_same_entity` (containment / ≥0.6 token overlap, corporate-form &
+  role stopwords stripped) + exporter/consignee FieldSpecs now say "COMPANY NAME only".
+- **New rule `rule.quantity_matches`** — invoice `total_quantity` vs packing-list
+  `total_quantity` (absent-on-either → needs_review, not a false pass). Catches the
+  under-declaration fraud Scenario 2 engineered.
+Eval gained `quantity_mismatch`, `units_in_weight`, `party_granularity` gold packets;
+116 tests pass, precision/recall still 1.0. **Still missed (future rule):** weight↔quantity
+reconciliation (weight implies 2,000 units while invoice declares 1,000) — a derived
+cross-metric check, not yet modeled.
 
 <!-- Paste live-test observations here before starting Phase 2:
      - which doc types classified well / poorly
