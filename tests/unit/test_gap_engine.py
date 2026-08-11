@@ -36,6 +36,7 @@ def _complete_docs() -> dict[str, ClassifiedDocument]:
             country_of_origin="China",
             currency="USD",
             total_value="10000",
+            total_quantity="200",
             exporter="Acme Ltd",
             consignee="Globex Inc",
         ),
@@ -43,6 +44,7 @@ def _complete_docs() -> dict[str, ClassifiedDocument]:
             "pl",
             "packing_list",
             total_value="10000",
+            total_quantity="200",
             net_weight="500",
             total_cartons="20",
             exporter="Acme Ltd",
@@ -75,8 +77,8 @@ def test_complete_packet_is_clear() -> None:
     report = _evaluate(_complete_docs())
     assert report.is_clear is True
     assert not report.missing and not report.deficient and not report.needs_review
-    # 4 document requirements + 5 field rules, all satisfied.
-    assert len(report.present) == 9
+    # 4 document requirements + 6 field rules, all satisfied.
+    assert len(report.present) == 10
 
 
 # --- Layer 1: presence ----------------------------------------------------
@@ -175,8 +177,51 @@ def test_carton_count_mismatch_is_deficient() -> None:
 
 def test_party_mismatch_is_deficient() -> None:
     docs = _complete_docs()
-    docs["bl"].fields["consignee"] = _f("consignee", "Someone Else Inc")
+    docs["bl"].fields["consignee"] = _f("consignee", "Totally Different Trading Co")
     report = _evaluate(docs)
     finding = _by_id(report, "rule.parties_aligned")
     assert finding is not None and finding.status is FindingStatus.DEFICIENT
     assert "consignee" in finding.summary
+
+
+# --- Phase 2: cross-document quantity, unit-tolerant parsing, tolerant parties ---
+
+
+def test_quantity_mismatch_is_deficient() -> None:
+    """The under-declaration fraud: invoice quantity != packing-list quantity."""
+    docs = _complete_docs()
+    docs["pl"].fields["total_quantity"] = _f("total_quantity", "400")  # invoice says 200
+    report = _evaluate(docs)
+    assert _by_id(report, "rule.quantity_matches").status is FindingStatus.DEFICIENT  # type: ignore[union-attr]
+
+
+def test_quantity_absent_needs_review() -> None:
+    docs = _complete_docs()
+    del docs["inv"].fields["total_quantity"]
+    report = _evaluate(docs)
+    assert _by_id(report, "rule.quantity_matches").status is FindingStatus.NEEDS_REVIEW  # type: ignore[union-attr]
+
+
+def test_numeric_values_with_units_are_parsed() -> None:
+    """Unit-laden values ("500 kg", "20 Crates") must parse, not trip needs_review."""
+    docs = _complete_docs()
+    docs["pl"].fields["net_weight"] = _f("net_weight", "6,800.00 KG")
+    docs["bl"].fields["net_weight"] = _f("net_weight", "6800 kg")
+    docs["pl"].fields["total_cartons"] = _f("total_cartons", "80 Crates")
+    docs["bl"].fields["total_cartons"] = _f("total_cartons", "80 crates")
+    report = _evaluate(docs)
+    assert _by_id(report, "rule.weight_count").status is FindingStatus.PRESENT  # type: ignore[union-attr]
+
+
+def test_party_name_granularity_still_matches() -> None:
+    """Same entity written at different granularity per doc must NOT flag a mismatch."""
+    docs = _complete_docs()
+    docs["inv"].fields["exporter"] = _f("exporter", "Acme Manufacturing Ltd")
+    docs["pl"].fields["exporter"] = _f(
+        "exporter", "Exporter: Acme Manufacturing Ltd, Shenzhen, China"
+    )
+    docs["bl"].fields["exporter"] = _f(
+        "exporter", "Shipper: Acme Manufacturing Ltd, 12 Industrial Road, Shenzhen, China"
+    )
+    report = _evaluate(docs)
+    assert _by_id(report, "rule.parties_aligned").status is FindingStatus.PRESENT  # type: ignore[union-attr]

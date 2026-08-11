@@ -43,6 +43,7 @@ def _complete_packet() -> tuple[list[tuple[str, bytes]], FakeAnalyzer]:
                     country_of_origin="China",
                     currency="USD",
                     total_value="10000",
+                    total_quantity="200",
                     exporter="Acme Ltd",
                     consignee="Globex Inc",
                 ),
@@ -52,6 +53,7 @@ def _complete_packet() -> tuple[list[tuple[str, bytes]], FakeAnalyzer]:
                 0.96,
                 _fields(
                     total_value="10000",
+                    total_quantity="200",
                     net_weight="500",
                     total_cartons="20",
                     exporter="Acme Ltd",
@@ -180,6 +182,7 @@ def test_combined_file_yields_multiple_documents(
                         country_of_origin="China",
                         currency="USD",
                         total_value="10000",
+                        total_quantity="200",
                         exporter="Acme Ltd",
                         consignee="Globex Inc",
                     ),
@@ -189,6 +192,7 @@ def test_combined_file_yields_multiple_documents(
                     0.96,
                     _fields(
                         total_value="10000",
+                        total_quantity="200",
                         net_weight="500",
                         total_cartons="20",
                         exporter="Acme Ltd",
