@@ -154,6 +154,29 @@ multimodal path) — plus a README of test scenarios and `generate.py` (fpdf2 + 
 regenerate. Use the scanned set to exercise the still-unproven multimodal path; fold real
 observations into `tests/eval/` for Phase 2 calibration.
 
+### Scanned + digital run (2026-08-10) — multimodal path PROVEN; 2 false positives found
+
+Ran the sample packet both as digital PDFs and scanned PNGs (Flash-Lite vision).
+
+- **Multimodal path works.** All 4 scanned docs classified correctly; HTS `8471.30.0100`
+  extracted + well-formed; origin consistent; declared value matched packing list;
+  Present = 7. The #1 unknown is resolved.
+- **False positive #1 — party matching (DEFICIENT, in *both* PDF and PNG runs).**
+  `_parties_aligned` does exact normalized-string equality, but the analyzer returns the
+  same entity at different granularity per doc (`"Acme Manufacturing Ltd"` vs
+  `"Exporter: Acme Manufacturing Ltd, Shenzhen, China"` vs
+  `"Shipper: Acme Manufacturing Ltd, 12 Industrial Road, …"`) → falsely flagged mismatch.
+  Fix (Phase 2): extract entity **name only** (analyzer prompt) **and** make the rule
+  tolerant (containment / token-overlap) rather than exact equality.
+- **False positive #2 — numeric parsing (NEEDS_REVIEW).** `_as_float` can't parse
+  `"500 kg"` (unit suffix) → weight/carton rule → needs_review. Same root cause as the
+  earlier "declared values not numeric." Fix (Phase 2): pull the leading numeric token,
+  strip units/currency. (Value rule passed only because the fixture used a clean `10000.00`.)
+
+Both false positives are **engine brittleness** (identical in PDF and PNG runs), not a
+vision problem. These two + numeric tolerances are the first Phase-2 work; fold these
+sample packets into `tests/eval/` as the calibration set.
+
 <!-- Paste live-test observations here before starting Phase 2:
      - which doc types classified well / poorly
      - extraction accuracy per field
