@@ -109,5 +109,23 @@ for name, lines in DOCS.items():
         px[x, yy] = (v, v, v)
     img.save(f"{BASE}/scanned/{name}.png", "PNG")
 
+# ---- Combined multi-document files (all four docs in ONE file) ----
+os.makedirs(f"{BASE}/combined", exist_ok=True)
+
+# Digital: one PDF, one document per page (real text layer).
+pdf = FPDF(format="A4")
+for name, lines in DOCS.items():
+    pdf.add_page()
+    for ln in lines:
+        style = "B" if ln.isupper() and ln.strip() else ""
+        pdf.set_font("Courier", style=style, size=14 if style else 11)
+        pdf.cell(0, 8, ln, ln=1)
+pdf.output(f"{BASE}/combined/packet_digital.pdf")
+
+# Scanned: one PDF built from the four scanned page images (no text layer).
+pages = [Image.open(f"{BASE}/scanned/{name}.png").convert("RGB") for name in DOCS]
+pages[0].save(f"{BASE}/combined/packet_scanned.pdf", save_all=True, append_images=pages[1:])
+
 print("digital:", sorted(os.listdir(f"{BASE}/digital")))
 print("scanned:", sorted(os.listdir(f"{BASE}/scanned")))
+print("combined:", sorted(os.listdir(f"{BASE}/combined")))

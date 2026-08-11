@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Callable, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
 from functools import lru_cache
 from pathlib import Path
@@ -373,25 +373,21 @@ class AuditService:
         rows: list[dict[str, Any]] = []
         seen: set[str] = set()
         for filename, data in files:
-            doc_id = filename
-            suffix = 1
-            while doc_id in seen:  # keep doc ids unique when filenames collide
-                suffix += 1
-                doc_id = f"{filename}#{suffix}"
-            seen.add(doc_id)
-
             content = self._router(filename, data)
-            doc = self._analyzer.analyze(doc_id, content, self._checklist)
-            classified.append(doc)
-            rows.append(
-                {
-                    "filename": filename,
-                    "doc_type": doc.doc_type,
-                    "classification_confidence": doc.confidence,
-                    "fields": _serialize_fields(doc.fields),
-                    "raw_text": content.text,
-                }
-            )
+            # One file may contain several documents (a combined packet PDF), so the
+            # analyzer returns a list; each detected document becomes its own row.
+            for doc in self._analyzer.analyze(filename, content, self._checklist):
+                doc = _ensure_unique_id(doc, seen)
+                classified.append(doc)
+                rows.append(
+                    {
+                        "filename": filename,
+                        "doc_type": doc.doc_type,
+                        "classification_confidence": doc.confidence,
+                        "fields": _serialize_fields(doc.fields),
+                        "raw_text": content.text,
+                    }
+                )
 
         report = evaluate(self._checklist, PacketEvidence(tuple(classified)))
 
@@ -417,6 +413,18 @@ class AuditService:
             raise
         finally:
             db.close()
+
+
+def _ensure_unique_id(doc: ClassifiedDocument, seen: set[str]) -> ClassifiedDocument:
+    """Keep document ids unique across the packet (e.g. same filename twice)."""
+    if doc.doc_id not in seen:
+        seen.add(doc.doc_id)
+        return doc
+    n = 1
+    while (candidate := f"{doc.doc_id} #{n}") in seen:
+        n += 1
+    seen.add(candidate)
+    return replace(doc, doc_id=candidate)
 
 
 def _serialize_fields(fields: dict[str, ExtractedField]) -> dict[str, Any] | None:
