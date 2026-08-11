@@ -79,20 +79,28 @@ class FakeAnalysis:
 
 
 class FakeAnalyzer:
-    """Scripted analyzer: maps a document's filename to a canned classification + fields."""
+    """Scripted analyzer: maps a filename to one canned document, or several (a combined
+    file). Each value may be a single ``FakeAnalysis`` or a list of them."""
 
-    def __init__(self, by_filename: dict[str, FakeAnalysis]) -> None:
+    def __init__(self, by_filename: dict[str, FakeAnalysis | list[FakeAnalysis]]) -> None:
         self._by_filename = by_filename
 
     def analyze(
         self, doc_id: str, content: DocumentContent, checklist: Checklist
-    ) -> ClassifiedDocument:
-        a = self._by_filename.get(content.filename)
-        if a is None:
-            return ClassifiedDocument(doc_id=doc_id, doc_type=None, confidence=0.0, fields={})
-        return ClassifiedDocument(
-            doc_id=doc_id, doc_type=a.doc_type, confidence=a.confidence, fields=dict(a.fields)
-        )
+    ) -> list[ClassifiedDocument]:
+        entry = self._by_filename.get(content.filename)
+        if entry is None:
+            return [ClassifiedDocument(doc_id=doc_id, doc_type=None, confidence=0.0, fields={})]
+        items = entry if isinstance(entry, list) else [entry]
+        out: list[ClassifiedDocument] = []
+        for i, a in enumerate(items):
+            did = doc_id if len(items) == 1 else f"{doc_id} · {a.doc_type or 'unknown'} #{i + 1}"
+            out.append(
+                ClassifiedDocument(
+                    doc_id=did, doc_type=a.doc_type, confidence=a.confidence, fields=dict(a.fields)
+                )
+            )
+        return out
 
 
 # --- Fixtures -------------------------------------------------------------

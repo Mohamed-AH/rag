@@ -39,8 +39,10 @@ Pure domain package `src/ragchat/audit/` — clean DAG, no I/O:
 - `engine.py` — `evaluate(checklist, evidence)`; pure; Layer 1 presence + unrecognized-doc
   handling + Layer 2 rules gated on their docs being confidently present.
 - `analyzer.py` — `Analyzer` **protocol** + `GeminiAnalyzer`: **single-pass** classify+extract
-  in one structured call per document (the only model-facing code; injected so tests use a
-  fake). Takes a `select_llm(content)` callable for per-path model routing.
+  in one structured call per **file**, returning a **list** of documents so a combined
+  multi-page packet (one PDF, many docs) is split into all its documents (the only
+  model-facing code; injected so tests use a fake). Takes a `select_llm(content)` callable
+  for per-path model routing.
 
 Pipeline & surfaces:
 - `ingestion/router.py` — `route()` picks text path (wraps existing `extractors.py`) vs
@@ -176,6 +178,18 @@ Ran the sample packet both as digital PDFs and scanned PNGs (Flash-Lite vision).
 Both false positives are **engine brittleness** (identical in PDF and PNG runs), not a
 vision problem. These two + numeric tolerances are the first Phase-2 work; fold these
 sample packets into `tests/eval/` as the calibration set.
+
+### Combined multi-page PDF (2026-08-11) — one-file-many-docs fixed
+
+A single scanned multi-page PDF (all four docs in one file) was classified as **one**
+document (commercial invoice) → other three reported MISSING. Root cause: the pipeline
+assumed one file = one document. **Fix:** `Analyzer.analyze` now returns a **list** —
+`GeminiAnalyzer` asks Gemini to identify *every* document in the file (leveraging native
+multi-page multimodal + 1M context) and returns one `ClassifiedDocument` per detected doc;
+`AuditService` persists a row per detected doc; ids stay unique (`_ensure_unique_id`).
+Still one model call per file (quota-cheap). Covered by
+`test_combined_file_yields_multiple_documents`. Combined fixtures added at
+`samples/customs/combined/packet_{digital,scanned}.pdf`.
 
 <!-- Paste live-test observations here before starting Phase 2:
      - which doc types classified well / poorly

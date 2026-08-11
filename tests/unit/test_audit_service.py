@@ -163,6 +163,69 @@ def test_empty_packet_rejected(
         service.audit_packet([])
 
 
+def test_combined_file_yields_multiple_documents(
+    make_audit_service: Callable[..., AuditService],
+    session_factory: Callable[[], Session],
+) -> None:
+    """One uploaded file (a combined packet PDF) whose pages are four different documents
+    must be split into all four — not collapsed into a single document."""
+    analyzer = FakeAnalyzer(
+        {
+            "packet.txt": [
+                FakeAnalysis(
+                    "commercial_invoice",
+                    0.97,
+                    _fields(
+                        hts_code="8471.30.01",
+                        country_of_origin="China",
+                        currency="USD",
+                        total_value="10000",
+                        exporter="Acme Ltd",
+                        consignee="Globex Inc",
+                    ),
+                ),
+                FakeAnalysis(
+                    "packing_list",
+                    0.96,
+                    _fields(
+                        total_value="10000",
+                        net_weight="500",
+                        total_cartons="20",
+                        exporter="Acme Ltd",
+                        consignee="Globex Inc",
+                    ),
+                ),
+                FakeAnalysis(
+                    "bill_of_lading",
+                    0.95,
+                    _fields(
+                        net_weight="500",
+                        total_cartons="20",
+                        exporter="Acme Ltd",
+                        consignee="Globex Inc",
+                    ),
+                ),
+                FakeAnalysis("certificate_of_origin", 0.94, _fields(country_of_origin="China")),
+            ]
+        }
+    )
+    service = make_audit_service(analyzer=analyzer)
+
+    result = service.audit_packet([("packet.txt", _TEXT.encode())])
+
+    assert result.report.is_clear is True
+    with session_factory() as db:
+        docs = repository.list_packet_documents(db, "session_a", result.packet_id)
+        assert len(docs) == 4
+        assert {d.doc_type for d in docs} == {
+            "commercial_invoice",
+            "packing_list",
+            "bill_of_lading",
+            "certificate_of_origin",
+        }
+        assert {d.filename for d in docs} == {"packet.txt"}
+
+
 def test_sessions_are_isolated(
     make_audit_service: Callable[..., AuditService],
     session_factory: Callable[[], Session],
