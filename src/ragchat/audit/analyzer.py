@@ -45,7 +45,14 @@ class _FieldResult(BaseModel):
 class _DocResult(BaseModel):
     doc_type: str = Field(description="One of the listed type ids, or 'unknown'.")
     confidence: float = Field(ge=0.0, le=1.0, description="Confidence in the type, 0-1.")
-    page: int | None = Field(default=None, description="1-based page the document starts on.")
+    pages: list[int] = Field(
+        default_factory=list,
+        description="All 1-based page numbers this document occupies (may be non-contiguous).",
+    )
+    grouping_reason: str | None = Field(
+        default=None,
+        description="Why these pages were grouped, e.g. a shared invoice/BoL/container number.",
+    )
     fields: list[_FieldResult] = Field(default_factory=list)
 
 
@@ -62,16 +69,23 @@ def _prompt(checklist: Checklist) -> str:
         lines.append(f"- {dt.id} — {dt.name}: {fields}")
     catalogue = "\n".join(lines)
     return (
-        "You are auditing a customs submission file. The file may contain ONE document or "
-        "SEVERAL (for example a combined packet where each page is a different document). "
-        "Identify EVERY distinct document in the file. For each one: classify it as exactly "
-        "one of the types below (or 'unknown' if none fit), note the 1-based page it starts "
-        "on, and extract that type's fields — for each field the value (or null if absent), "
-        "your confidence (0-1), and a short verbatim snippet showing where it came from.\n\n"
+        "You are auditing a customs submission file that may contain ONE or MANY documents, "
+        "in ANY page order. Pages of the same document may be non-contiguous (e.g. an invoice "
+        "on pages 2 and 4 with a bill of lading on page 3). Do NOT assume documents appear in "
+        "order or on consecutive pages — use the whole file at once.\n\n"
+        "Work it out page by page:\n"
+        "1. Scan every page for document anchor headers/titles (e.g. 'Commercial Invoice', "
+        "'Packing List', 'Bill of Lading', 'Certificate of Origin') and distinct layouts.\n"
+        "2. Group pages that belong to the same document by tracking shared identifiers across "
+        "pages — invoice numbers, bill-of-lading / air-waybill numbers, container or PO numbers.\n"
+        "3. For each distinct document: classify it as exactly one of the types below (or "
+        "'unknown'), list ALL of its page numbers (contiguous or not), give a short "
+        "grouping_reason when you merged pages, and extract that type's fields — each with a "
+        "value (or null if absent), confidence (0-1), and a short verbatim snippet.\n\n"
         f"Types and their fields:\n{catalogue}\n\n"
-        "Return a `documents` list with one entry per distinct document found. Do not merge "
-        "different document types into one entry, and do not invent documents that are not "
-        "present."
+        "Return a `documents` list with exactly one entry per distinct document. Do not split "
+        "one document across multiple entries, do not merge different documents into one entry, "
+        "and do not invent documents that are not present."
     )
 
 
@@ -119,8 +133,9 @@ def _doc_id(base: str, doc: _DocResult, index: int, multi: bool, seen: set[str])
     """A stable, unique, human-readable id for one detected document within a file."""
     if not multi:
         candidate = base
-    elif doc.page is not None:
-        candidate = f"{base} (page {doc.page})"
+    elif doc.pages:
+        pages = ", ".join(str(p) for p in doc.pages)
+        candidate = f"{base} ({'pages' if len(doc.pages) > 1 else 'page'} {pages})"
     else:
         candidate = f"{base} · {doc.doc_type.strip() or 'doc'} #{index + 1}"
     unique = candidate
@@ -135,6 +150,7 @@ def _doc_id(base: str, doc: _DocResult, index: int, multi: bool, seen: set[str])
 def _fields(
     doc_id: str, doc: _DocResult, specs: tuple[FieldSpec, ...]
 ) -> dict[str, ExtractedField]:
+    first_page = doc.pages[0] if doc.pages else None
     wanted = {spec.name for spec in specs}
     fields: dict[str, ExtractedField] = {}
     for field in doc.fields:
@@ -144,6 +160,6 @@ def _fields(
             name=field.name,
             value=field.value,
             confidence=field.confidence,
-            source=SourcePointer(doc_id=doc_id, page=doc.page, snippet=field.snippet),
+            source=SourcePointer(doc_id=doc_id, page=first_page, snippet=field.snippet),
         )
     return fields

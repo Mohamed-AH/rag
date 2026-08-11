@@ -191,6 +191,12 @@ Still one model call per file (quota-cheap). Covered by
 `test_combined_file_yields_multiple_documents`. Combined fixtures added at
 `samples/customs/combined/packet_{digital,scanned}.pdf`.
 
+The analyzer prompt/schema handle **unpredictable page order + non-contiguous multi-page
+documents**: `_DocResult` carries a full `pages: list[int]` (+ `grouping_reason`), and the
+prompt directs the model to scan every page for anchor headers and group pages by shared
+identifiers (invoice/BoL/container numbers) rather than assuming order — the single-call
+approach's whole-file view is what makes that possible. Doc ids read `packet.pdf (pages 2, 4)`.
+
 <!-- Paste live-test observations here before starting Phase 2:
      - which doc types classified well / poorly
      - extraction accuracy per field
