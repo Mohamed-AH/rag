@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from ragchat.audit.checklist import CUSTOMS_CHECKLIST, get_checklist
+from ragchat.audit.manifest import CUSTOMS_CHECKLIST, get_checklist
 from ragchat.errors import UnknownChecklistError
 
 

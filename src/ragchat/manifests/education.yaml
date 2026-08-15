@@ -1,0 +1,62 @@
+vertical_id: education_admissions
+name: Education Admission & Student Visa Audit
+
+# Second vertical, added with ZERO engine/Python changes — just this file. Names are
+# extracted under one shared key (applicant_name) per document so the reconciliation rule
+# can compare them across the passport, transcript, and language scorecard.
+documents:
+  - id: passport
+    name: Passport Photo Page
+    fields:
+      - name: applicant_name
+        description: The passport holder's full legal NAME only (no labels).
+      - name: passport_number
+        description: The passport document number.
+      - name: expiry_date
+        description: The passport expiry date (ISO YYYY-MM-DD if possible).
+
+  - id: transcript
+    name: Academic Transcript
+    fields:
+      - name: applicant_name
+        description: The student's full name as printed (NAME only).
+      - name: institution_name
+        description: The issuing institution's name.
+      - name: completion_date
+        description: The graduation/completion date.
+
+  - id: language_score
+    name: English Proficiency Scorecard (IELTS/TOEFL)
+    fields:
+      - name: applicant_name
+        description: The candidate's full name (NAME only).
+      - name: overall_score
+        description: The overall band/score.
+      - name: test_date
+        description: The date the test was taken (ISO YYYY-MM-DD if possible).
+
+rules:
+  - id: rule.name_consistent
+    description: Applicant name matches across passport, transcript, and language scorecard
+    type: cross_match
+    fields: [applicant_name]
+    docs: [passport, transcript, language_score]
+    comparator: entity
+    threshold: 0.85
+    label: Applicant name
+
+  - id: rule.language_score_recent
+    description: English proficiency score is not older than two years
+    type: date_valid
+    doc: language_score
+    field: test_date
+    max_age_years: 2
+    label: Language test score
+
+  - id: rule.passport_valid
+    description: Passport has not expired
+    type: date_valid
+    doc: passport
+    field: expiry_date
+    not_expired: true
+    label: Passport

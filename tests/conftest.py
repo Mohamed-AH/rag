@@ -21,8 +21,9 @@ from sqlalchemy import create_engine, event
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
-from ragchat.audit.checklist import CUSTOMS_CHECKLIST, Checklist
+from ragchat.audit.checklist import Checklist
 from ragchat.audit.evidence import ClassifiedDocument, ExtractedField
+from ragchat.audit.manifest import CUSTOMS_CHECKLIST
 from ragchat.db.models import Base
 from ragchat.ingestion.router import DocumentContent
 from ragchat.rag.pipeline import build_rag_chain

@@ -37,9 +37,16 @@ Pure domain package `src/ragchat/audit/` — clean DAG, no I/O:
   `Finding`, `GapReport` (buckets are derived views over `findings`).
 - `evidence.py` — engine input contract: `ExtractedField`, `ClassifiedDocument`,
   `PacketEvidence`, `RuleContext`, `RuleResult`.
-- `checklist.py` — two-layer checklist-as-data: `DocType`(+`FieldSpec` extraction schema),
-  `DocumentRequirement` (Layer 1 presence), `FieldRule` (Layer 2 cross-doc rules),
-  `CUSTOMS_CHECKLIST`, `get_checklist`. **Rules are data.**
+- `checklist.py` — **types only**: `DocType`(+`FieldSpec`), `DocumentRequirement` (Layer 1),
+  `FieldRule` (Layer 2), `Checklist`. The compiled shape a vertical takes.
+- `checks.py` — reusable, parameterized **check primitives** (`regex_match`, `numeric_match`,
+  `cross_match` text/entity, `date_valid`) + shared helpers (`as_float`, `_same_entity`, …).
+  The vocabulary manifests compose. **No string-expression DSL.**
+- `manifest.py` — Pydantic manifest schema (discriminated on rule `type`) + `compile_manifest`
+  (manifest → `Checklist`) + registry (`get_checklist`, `available_checklists`,
+  `CUSTOMS_CHECKLIST`). Loads every `manifests/*.yaml` once.
+- `../manifests/*.yaml` — **verticals as declarative YAML** (`customs.yaml`,
+  `education.yaml`). Adding a vertical = dropping in a file; **zero engine/Python changes**.
 - `engine.py` — `evaluate(checklist, evidence)`; pure; Layer 1 presence + unrecognized-doc
   handling + Layer 2 rules gated on their docs being confidently present.
 - `analyzer.py` — `Analyzer` **protocol** + `GeminiAnalyzer`: **single-pass** classify+extract
@@ -57,13 +64,18 @@ Pipeline & surfaces:
   `build_audit_service()` wires production deps.
 - `db/models.py` — `Packet`, `PacketDocument` (cascade from `sessions`); migration
   `migrations/versions/0002_packet_auditor_schema.py`.
-- `api/routes.py` — `POST /audit` (multipart); `api/schemas.py` — `GapReportSchema` (4
-  buckets + `is_clear`) `.from_report`.
-- `cli.py` — `ragchat audit <files...>`. `api/static/index.html` — Ask/Audit mode toggle.
+- `api/routes.py` — `POST /audit` (multipart, optional `checklist_id` form field →
+  vertical), `GET /checklists` (available verticals + names); `api/schemas.py` —
+  `GapReportSchema` (4 buckets + `is_clear`) `.from_report`, `ChecklistOption`.
+  `build_audit_service(checklist_id=...)` selects the manifest (defaults to
+  `ACTIVE_CHECKLIST`).
+- `cli.py` — `ragchat audit <files...>`. `api/static/index.html` — Ask/Audit mode toggle
+  + **vertical picker dropdown** (populated from `/checklists`, sent as `checklist_id`).
 
-Tests: `tests/unit/test_{report,checklist,gap_engine,router,audit_service,audit_api}.py`;
+Tests: `tests/unit/test_{report,checklist,gap_engine,router,audit_service,audit_api,manifest}.py`;
 hermetic eval `tests/eval/` (gold Customs packets, precision/recall gate at 1.0). Fake
-`FakeAnalyzer`/`FakeAnalysis` live in `tests/conftest.py`.
+`FakeAnalyzer`/`FakeAnalysis` live in `tests/conftest.py`. **Customs is now loaded from
+`manifests/customs.yaml`, so the full green suite is the manifest-parity proof.**
 
 ## Locked decisions (do not re-open without reason)
 
@@ -71,7 +83,9 @@ hermetic eval `tests/eval/` (gold Customs packets, precision/recall gate at 1.0)
    from a low-confidence read; route uncertainty to `needs_review`. Every finding carries
    confidence + source pointer.
 2. **Two-layer checklist**: presence (Layer 1) then per-field/cross-doc rules (Layer 2).
-   Layer 2 is the value; keep investing there.
+   Layer 2 is the value; keep investing there. **Verticals are declarative YAML manifests**
+   compiled to `Checklist` via structured check primitives — NOT a string-expression DSL,
+   NOT hand-written Python per vertical. Add a vertical = add a `manifests/*.yaml` file.
 3. **Intake router wraps, not replaces, `extractors.py`.** Scanned path = one multimodal
    call (parse+extract together). No new parser vendor unless measured.
 4. **No pgvector on the audit path** — direct structured Gemini calls. pgvector stays only
@@ -217,6 +231,14 @@ Eval gained `quantity_mismatch`, `units_in_weight`, `party_granularity` gold pac
 116 tests pass, precision/recall still 1.0. **Still missed (future rule):** weight↔quantity
 reconciliation (weight implies 2,000 units while invoice declares 1,000) — a derived
 cross-metric check, not yet modeled.
+
+**Re-run confirmed (2026-08-15).** `set2.pdf` audited live with the fixes deployed:
+`rule.quantity_matches` → **DEFICIENT "invoice 1,000 vs packing list 2,000" @100%** with
+page-cited sources (p.1=1,000, p.2=2,000); the weight/carton needs_review and the party
+false positive are gone; page-level source pointers work. Remaining set2 deficients
+(`total_value` missing on PL, `net_weight` missing on BoL) are correct structural findings.
+Possible future refinement: BoL often states *gross* weight only — consider net↔gross
+fallback before flagging `net_weight` missing.
 
 <!-- Paste live-test observations here before starting Phase 2:
      - which doc types classified well / poorly

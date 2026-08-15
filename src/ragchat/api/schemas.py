@@ -112,3 +112,10 @@ class AuditResponse(BaseModel):
     packet_id: str
     checklist_id: str
     report: GapReportSchema
+
+
+class ChecklistOption(BaseModel):
+    """A selectable audit vertical, for the UI's vertical picker."""
+
+    id: str
+    name: str
