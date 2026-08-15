@@ -64,9 +64,13 @@ Pipeline & surfaces:
   `build_audit_service()` wires production deps.
 - `db/models.py` — `Packet`, `PacketDocument` (cascade from `sessions`); migration
   `migrations/versions/0002_packet_auditor_schema.py`.
-- `api/routes.py` — `POST /audit` (multipart); `api/schemas.py` — `GapReportSchema` (4
-  buckets + `is_clear`) `.from_report`.
-- `cli.py` — `ragchat audit <files...>`. `api/static/index.html` — Ask/Audit mode toggle.
+- `api/routes.py` — `POST /audit` (multipart, optional `checklist_id` form field →
+  vertical), `GET /checklists` (available verticals + names); `api/schemas.py` —
+  `GapReportSchema` (4 buckets + `is_clear`) `.from_report`, `ChecklistOption`.
+  `build_audit_service(checklist_id=...)` selects the manifest (defaults to
+  `ACTIVE_CHECKLIST`).
+- `cli.py` — `ragchat audit <files...>`. `api/static/index.html` — Ask/Audit mode toggle
+  + **vertical picker dropdown** (populated from `/checklists`, sent as `checklist_id`).
 
 Tests: `tests/unit/test_{report,checklist,gap_engine,router,audit_service,audit_api,manifest}.py`;
 hermetic eval `tests/eval/` (gold Customs packets, precision/recall gate at 1.0). Fake

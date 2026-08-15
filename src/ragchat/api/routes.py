@@ -9,7 +9,17 @@ from collections.abc import Callable
 from datetime import UTC, datetime
 from uuid import uuid4
 
-from fastapi import APIRouter, Depends, File, HTTPException, Request, Response, UploadFile, status
+from fastapi import (
+    APIRouter,
+    Depends,
+    File,
+    Form,
+    HTTPException,
+    Request,
+    Response,
+    UploadFile,
+    status,
+)
 from sqlalchemy import text
 from sqlalchemy.orm import Session as DbSession
 from starlette.concurrency import run_in_threadpool
@@ -19,6 +29,7 @@ from ragchat.api.schemas import (
     AskRequest,
     AskResponse,
     AuditResponse,
+    ChecklistOption,
     GapReportSchema,
     HealthResponse,
     IngestResponse,
@@ -30,6 +41,7 @@ from ragchat.errors import (
     FileTooLargeError,
     TooManyFilesError,
     TooManySectionsError,
+    UnknownChecklistError,
     UnsupportedFileTypeError,
 )
 from ragchat.service import AuditService, RAGService, build_audit_service, build_session_service
@@ -91,12 +103,24 @@ def get_service(request: Request, session_id: str = Depends(get_session_id)) -> 
     return build_session_service(session_id, cohere_key=cohere_key, google_key=google_key)
 
 
-def get_audit_service(request: Request, session_id: str = Depends(get_session_id)) -> AuditService:
-    """Build a session-scoped audit service, honoring a per-request BYO Google key.
+def get_audit_service(
+    request: Request,
+    session_id: str = Depends(get_session_id),
+    checklist_id: str | None = Form(default=None),
+) -> AuditService:
+    """Build a session-scoped audit service for the selected vertical.
 
-    Overridden in tests to inject a fake.
+    Honors a per-request BYO Google key and an optional ``checklist_id`` form field
+    (defaults to the configured vertical). Overridden in tests to inject a fake.
     """
-    return build_audit_service(session_id, google_key=_byo_google_key(request))
+    try:
+        return build_audit_service(
+            session_id, google_key=_byo_google_key(request), checklist_id=checklist_id
+        )
+    except UnknownChecklistError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
+        ) from exc
 
 
 def get_db_session_factory() -> Callable[[], DbSession]:
@@ -321,6 +345,14 @@ async def ingest_file(
         # Embedding/provider failures return clean JSON (429 for quota, else 502).
         raise _map_provider_error(exc, "ingest") from exc
     return IngestResponse(sections_written=result.sections_written)
+
+
+@router.get("/checklists", response_model=list[ChecklistOption], tags=["audit"])
+def list_checklists() -> list[ChecklistOption]:
+    """The audit verticals available to pick, each with its display name."""
+    from ragchat.audit.manifest import available_checklists, get_checklist
+
+    return [ChecklistOption(id=cid, name=get_checklist(cid).name) for cid in available_checklists()]
 
 
 @router.post(

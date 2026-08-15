@@ -441,12 +441,15 @@ def _serialize_fields(fields: dict[str, ExtractedField]) -> dict[str, Any] | Non
     return out
 
 
-def build_audit_service(session_id: str, *, google_key: str | None = None) -> AuditService:
+def build_audit_service(
+    session_id: str, *, google_key: str | None = None, checklist_id: str | None = None
+) -> AuditService:
     """Wire a fully configured, session-scoped :class:`AuditService`.
 
     The audit path needs only the Gemini model (no embeddings / pgvector). ``google_key``,
     when supplied, is a bring-your-own key used to build the model per request and never
-    persisted.
+    persisted. ``checklist_id`` selects the vertical manifest, defaulting to the configured
+    ``active_checklist``; an unknown id raises :class:`~ragchat.errors.UnknownChecklistError`.
     """
     from ragchat.audit.analyzer import GeminiAnalyzer
     from ragchat.audit.manifest import get_checklist
@@ -465,7 +468,7 @@ def build_audit_service(session_id: str, *, google_key: str | None = None) -> Au
     def select_llm(content: DocumentContent) -> Any:
         return vision_llm if content.mode == IMAGE else text_llm
 
-    checklist = get_checklist(settings.active_checklist)
+    checklist = get_checklist(checklist_id or settings.active_checklist)
 
     return AuditService(
         session_id=session_id,

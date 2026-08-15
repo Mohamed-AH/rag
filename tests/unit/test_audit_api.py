@@ -78,6 +78,18 @@ def test_audit_returns_gap_report(audit_client: tuple[TestClient, _FakeAuditServ
     assert len(fake.received) == 2
 
 
+def test_list_checklists_returns_available_verticals(
+    audit_client: tuple[TestClient, _FakeAuditService],
+) -> None:
+    client, _fake = audit_client
+    resp = client.get("/checklists")
+    assert resp.status_code == 200
+    by_id = {c["id"]: c["name"] for c in resp.json()}
+    assert "customs" in by_id
+    assert "education_admissions" in by_id
+    assert by_id["customs"]  # has a display name
+
+
 def test_audit_rejects_too_many_files(
     audit_client: tuple[TestClient, _FakeAuditService],
 ) -> None:
