@@ -1,0 +1,113 @@
+vertical_id: customs
+name: Customs Pre-Clearance
+
+# Layer 1 — required document types, and the fields the analyzer extracts from each.
+documents:
+  - id: commercial_invoice
+    name: Commercial Invoice
+    fields:
+      - name: hts_code
+        description: The HTS/HS tariff classification code.
+      - name: country_of_origin
+        description: The declared country of origin of the goods.
+      - name: currency
+        description: The currency of the declared value (e.g. USD).
+      - name: total_value
+        description: The total declared value/amount of the invoice.
+      - name: total_quantity
+        description: The total quantity of goods/units on the invoice.
+      - name: exporter
+        description: >-
+          The exporter/shipper/seller COMPANY NAME only — exclude any
+          'Exporter:'/'Shipper:' label and the address.
+      - name: consignee
+        description: >-
+          The consignee/buyer/importer COMPANY NAME only — exclude any label and the address.
+
+  - id: packing_list
+    name: Packing List
+    fields:
+      - name: total_value
+        description: The total declared value/amount, if stated.
+      - name: total_quantity
+        description: The total quantity of goods/units packed.
+      - name: net_weight
+        description: The total net weight of the shipment.
+      - name: total_cartons
+        description: The total number of cartons/packages.
+      - name: exporter
+        description: The exporter/shipper COMPANY NAME only (no label, no address).
+      - name: consignee
+        description: The consignee/buyer COMPANY NAME only (no label, no address).
+
+  - id: bill_of_lading
+    name: Bill of Lading / Air Waybill
+    fields:
+      - name: net_weight
+        description: The total net weight of the shipment.
+      - name: total_cartons
+        description: The total number of cartons/packages.
+      - name: exporter
+        description: The shipper/exporter COMPANY NAME only (no label, no address).
+      - name: consignee
+        description: The consignee COMPANY NAME only (no label, no address).
+
+  - id: certificate_of_origin
+    name: Certificate of Origin
+    fields:
+      - name: country_of_origin
+        description: The certified country of origin of the goods.
+
+# Layer 2 — cross-document rules, each composed from a check primitive.
+rules:
+  - id: rule.hts_code
+    description: HTS/HS classification code present and well-formed on the commercial invoice
+    type: regex_match
+    doc: commercial_invoice
+    field: hts_code
+    pattern: '\d{6,10}'
+    strip: '[.\s\-]'
+    label: HTS code
+
+  - id: rule.origin_consistent
+    description: Country of origin agrees between commercial invoice and certificate of origin
+    type: cross_match
+    fields: [country_of_origin]
+    docs: [commercial_invoice, certificate_of_origin]
+    comparator: text
+    label: Country of origin
+
+  - id: rule.value_matches
+    description: Declared currency present and value matches the packing list
+    type: numeric_match
+    groups:
+      - [commercial_invoice.total_value, packing_list.total_value]
+    requires: [commercial_invoice.currency]
+    missing: deficient
+    label: Declared value
+
+  - id: rule.quantity_matches
+    description: Total quantity agrees between commercial invoice and packing list
+    type: numeric_match
+    groups:
+      - [commercial_invoice.total_quantity, packing_list.total_quantity]
+    missing: needs_review
+    label: Total quantity
+
+  - id: rule.weight_count
+    description: Net weight and carton count agree across packing list and bill of lading
+    type: numeric_match
+    groups:
+      - [packing_list.net_weight, bill_of_lading.net_weight]
+      - [packing_list.total_cartons, bill_of_lading.total_cartons]
+    missing: deficient
+    label: Weight/carton
+
+  - id: rule.parties_aligned
+    description: Exporter and consignee align across invoice, packing list, and bill of lading
+    type: cross_match
+    fields: [exporter, consignee]
+    docs: [commercial_invoice, packing_list, bill_of_lading]
+    comparator: entity
+    threshold: 0.6
+    label: Party

@@ -10,8 +10,8 @@ from __future__ import annotations
 from typing import Any
 
 from ragchat.audit import evaluate
-from ragchat.audit.checklist import CUSTOMS_CHECKLIST
 from ragchat.audit.evidence import ClassifiedDocument, ExtractedField, PacketEvidence
+from ragchat.audit.manifest import CUSTOMS_CHECKLIST
 from ragchat.audit.report import Finding, FindingStatus, GapReport
 
 

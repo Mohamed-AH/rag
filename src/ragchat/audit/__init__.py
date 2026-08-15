@@ -12,13 +12,11 @@ real evidence from files (single-pass classify+extract) arrives in Phase 1.
 from __future__ import annotations
 
 from ragchat.audit.checklist import (
-    CUSTOMS_CHECKLIST,
     Checklist,
     DocType,
     DocumentRequirement,
     FieldRule,
     FieldSpec,
-    get_checklist,
 )
 from ragchat.audit.engine import evaluate
 from ragchat.audit.evidence import (
@@ -28,6 +26,7 @@ from ragchat.audit.evidence import (
     RuleContext,
     RuleResult,
 )
+from ragchat.audit.manifest import CUSTOMS_CHECKLIST, available_checklists, get_checklist
 from ragchat.audit.report import Finding, FindingStatus, GapReport, SourcePointer
 
 __all__ = [
@@ -46,6 +45,7 @@ __all__ = [
     "RuleContext",
     "RuleResult",
     "SourcePointer",
+    "available_checklists",
     "evaluate",
     "get_checklist",
 ]

@@ -449,7 +449,7 @@ def build_audit_service(session_id: str, *, google_key: str | None = None) -> Au
     persisted.
     """
     from ragchat.audit.analyzer import GeminiAnalyzer
-    from ragchat.audit.checklist import get_checklist
+    from ragchat.audit.manifest import get_checklist
     from ragchat.db.engine import get_session_factory, init_db
     from ragchat.ingestion.router import IMAGE
     from ragchat.rag.llm import build_llm, build_vision_llm
