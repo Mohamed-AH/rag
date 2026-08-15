@@ -218,6 +218,14 @@ Eval gained `quantity_mismatch`, `units_in_weight`, `party_granularity` gold pac
 reconciliation (weight implies 2,000 units while invoice declares 1,000) — a derived
 cross-metric check, not yet modeled.
 
+**Re-run confirmed (2026-08-15).** `set2.pdf` audited live with the fixes deployed:
+`rule.quantity_matches` → **DEFICIENT "invoice 1,000 vs packing list 2,000" @100%** with
+page-cited sources (p.1=1,000, p.2=2,000); the weight/carton needs_review and the party
+false positive are gone; page-level source pointers work. Remaining set2 deficients
+(`total_value` missing on PL, `net_weight` missing on BoL) are correct structural findings.
+Possible future refinement: BoL often states *gross* weight only — consider net↔gross
+fallback before flagging `net_weight` missing.
+
 <!-- Paste live-test observations here before starting Phase 2:
      - which doc types classified well / poorly
      - extraction accuracy per field
