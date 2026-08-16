@@ -107,11 +107,13 @@ class GapReportSchema(BaseModel):
 
 
 class AuditResponse(BaseModel):
-    """Result of auditing a packet: its id, the checklist used, and the Gap Report."""
+    """Result of auditing a packet: its id, the checklist used, the Gap Report, and a
+    ready-to-send missing-items request rendered from that report."""
 
     packet_id: str
     checklist_id: str
     report: GapReportSchema
+    request_summary: str
 
 
 class ChecklistOption(BaseModel):

@@ -240,6 +240,16 @@
     .run .when { margin-left: auto; font-size: 12px; color: var(--faint); flex: none; }
     .run .count { font-size: 12px; color: var(--muted); flex: none; }
 
+    /* ---- Print: report only, for Save-as-PDF ---- */
+    @media print {
+      .sidebar, .topbar, .composer, #auditRuns, .vertical-row, .audit-drop, #auditFiles,
+      #auditFileList, #auditBtn, #auditStatus, .no-print, .scrim, .hamburger { display: none !important; }
+      .app { display: block; height: auto; }
+      .main, #auditView { height: auto; overflow: visible; }
+      body, .main, #auditView { background: #fff; }
+      .finding, .bucket { break-inside: avoid; }
+    }
+
     .scrim { display: none; }
     /* ---- Responsive ---- */
     @media (max-width: 860px) {
@@ -642,7 +652,8 @@
         const data = await readJson(r);
         if (!r.ok) throw new Error(detailText(data) || ("Error " + r.status));
         setStatus($("auditStatus"), "");
-        const run = { id: data.packet_id, at: Date.now(), files: files.map(f => f.name), report: data.report };
+        const run = { id: data.packet_id, at: Date.now(), files: files.map(f => f.name), report: data.report,
+          request: data.request_summary || "", checklist: data.checklist_id || (auditVerticalEl.value || "audit") };
         auditRuns.unshift(run); auditRuns = auditRuns.slice(0, 10); persistRuns();
         showRun(run); renderRuns();
       } catch (e) {
@@ -707,6 +718,28 @@
       const newBtn = document.createElement("button"); newBtn.className = "btn btn-ghost btn-sm";
       newBtn.textContent = "＋ New audit"; newBtn.addEventListener("click", startNewAudit);
       head.append(tag, meta, spacer, newBtn);
+      // Missing-items request actions (hidden if the packet is clear / no request text).
+      if (run.request) {
+        const copyBtn = document.createElement("button"); copyBtn.className = "btn btn-ghost btn-sm no-print";
+        copyBtn.textContent = "Copy request";
+        copyBtn.addEventListener("click", async () => {
+          try { await navigator.clipboard.writeText(run.request); toast("Request copied"); }
+          catch { toast("Copy failed — select & copy manually", "err"); }
+        });
+        const dlBtn = document.createElement("button"); dlBtn.className = "btn btn-ghost btn-sm no-print";
+        dlBtn.textContent = "Download";
+        dlBtn.addEventListener("click", () => {
+          const blob = new Blob([run.request], { type: "text/markdown" });
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement("a");
+          a.href = url; a.download = "audit-request-" + (run.checklist || "audit") + ".md";
+          document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
+        });
+        const printBtn = document.createElement("button"); printBtn.className = "btn btn-ghost btn-sm no-print";
+        printBtn.textContent = "Print / PDF";
+        printBtn.addEventListener("click", () => window.print());
+        head.append(copyBtn, dlBtn, printBtn);
+      }
       wrap.appendChild(head);
 
       const buckets = [

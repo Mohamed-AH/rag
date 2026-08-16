@@ -74,6 +74,9 @@ def test_audit_returns_gap_report(audit_client: tuple[TestClient, _FakeAuditServ
     assert [f["requirement_id"] for f in body["report"]["missing"]] == ["doc.packing_list"]
     assert body["report"]["deficient"][0]["sources"][0]["snippet"] == "HTS: 12"
     assert body["report"]["is_clear"] is False
+    # A ready-to-send missing-items request is rendered from the report.
+    assert "Action Required" in body["request_summary"]
+    assert "Packing List is missing" in body["request_summary"]
     # The endpoint forwarded both files to the service.
     assert len(fake.received) == 2
 
