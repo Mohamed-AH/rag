@@ -41,6 +41,7 @@ def test_installed_verticals_are_available() -> None:
     assert "education_admissions" in available
     assert "procurement" in available
     assert "healthcare_credentialing" in available
+    assert "study_visa_funds" in available
 
 
 def test_unknown_checklist_raises() -> None:
@@ -94,6 +95,26 @@ rules:
       - [amount]          # missing the doc_type. prefix
 """
     with pytest.raises(ValueError):
+        load_manifest(bad)
+
+
+def test_threshold_without_a_bound_is_rejected() -> None:
+    bad = """
+vertical_id: broken
+name: Broken
+documents:
+  - id: doc_a
+    name: Doc A
+    fields:
+      - {name: amount, description: an amount}
+rules:
+  - id: rule.bad
+    type: numeric_threshold
+    doc: doc_a
+    field: amount
+    label: Amount
+"""
+    with pytest.raises(ValidationError):
         load_manifest(bad)
 
 
@@ -295,3 +316,53 @@ def test_credentialing_name_mismatch_is_deficient() -> None:
     )
     finding = next(f for f in report.deficient if f.requirement_id == "rule.name_consistent")
     assert finding.status is FindingStatus.DEFICIENT
+
+
+# --- Fifth vertical: study-visa funds (numeric_threshold primitive) --------
+
+
+def _study_visa_docs(*, balance: str = "USD 30,000", sponsored: str = "40000") -> PacketEvidence:
+    recent = (date.today() - timedelta(days=60)).isoformat()
+    return PacketEvidence(
+        (
+            _doc(
+                "bank_statement",
+                "bank_statement",
+                applicant_name="Priya Nair",
+                closing_balance=balance,
+                statement_date=recent,
+            ),
+            _doc(
+                "admission_letter",
+                "admission_letter",
+                applicant_name="Priya Nair",
+                institution_name="State University",
+                program="M.Sc. Data Science",
+            ),
+            _doc(
+                "sponsorship_affidavit",
+                "sponsorship_affidavit",
+                sponsor_name="Rajesh Nair",
+                sponsored_amount=sponsored,
+                signed_date="2026-02-01",
+            ),
+        )
+    )
+
+
+def test_study_visa_complete_packet_is_clear() -> None:
+    report = evaluate(get_checklist("study_visa_funds"), _study_visa_docs())
+    assert report.is_clear is True
+
+
+def test_study_visa_insufficient_balance_is_deficient() -> None:
+    # Below the 25,000 minimum -> the threshold check fails (unit-laden value still parses).
+    report = evaluate(get_checklist("study_visa_funds"), _study_visa_docs(balance="USD 8,500"))
+    finding = next(f for f in report.deficient if f.requirement_id == "rule.min_bank_balance")
+    assert finding.status is FindingStatus.DEFICIENT
+
+
+def test_study_visa_sufficient_balance_is_present() -> None:
+    report = evaluate(get_checklist("study_visa_funds"), _study_visa_docs(balance="26,000.00"))
+    finding = next(f for f in report.present if f.requirement_id == "rule.min_bank_balance")
+    assert finding.status is FindingStatus.PRESENT

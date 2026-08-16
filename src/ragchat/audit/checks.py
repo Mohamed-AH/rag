@@ -389,3 +389,47 @@ def date_valid(
         )
 
     return _wrap(check)
+
+
+def numeric_threshold(
+    *, doc_type: str, field: str, minimum: float | None, maximum: float | None, label: str
+) -> RuleCheck:
+    """Bound a numeric field by a constant floor and/or ceiling.
+
+    The check for a *sufficient* value — proof-of-funds balance ≥ a minimum, coverage ≥ a
+    floor, income ≥ a policy threshold, a score within a band. Unit/currency-laden values
+    parse via :func:`as_float`; a non-numeric value routes to ``needs_review``.
+    """
+
+    def check(evidence: PacketEvidence, ctx: RuleContext) -> RuleResult:
+        f, doc_id = _require(evidence, ctx, doc_type, field)
+        val = as_float(f.value)
+        if val is None:
+            return RuleResult(
+                FindingStatus.NEEDS_REVIEW,
+                f"{label} '{f.value}' is not numeric — verify manually",
+                f.confidence,
+                _ptr(f, doc_id),
+            )
+        if minimum is not None and val < minimum:
+            return RuleResult(
+                FindingStatus.DEFICIENT,
+                f"{label} {f.value} is below the required minimum of {minimum:g}",
+                f.confidence,
+                _ptr(f, doc_id),
+            )
+        if maximum is not None and val > maximum:
+            return RuleResult(
+                FindingStatus.DEFICIENT,
+                f"{label} {f.value} exceeds the allowed maximum of {maximum:g}",
+                f.confidence,
+                _ptr(f, doc_id),
+            )
+        return RuleResult(
+            FindingStatus.PRESENT,
+            f"{label} {f.value} meets the requirement",
+            f.confidence,
+            _ptr(f, doc_id),
+        )
+
+    return _wrap(check)

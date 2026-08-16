@@ -24,7 +24,12 @@ samples/
 │   ├── scanned/*.png
 │   ├── combined/{packet_digital,packet_scanned}.pdf
 │   └── generate.py
-└── healthcare/                  # vertical: "healthcare_credentialing" (manifests/healthcare.yaml)
+├── healthcare/                  # vertical: "healthcare_credentialing" (manifests/healthcare.yaml)
+│   ├── digital/*.pdf
+│   ├── scanned/*.png
+│   ├── combined/{packet_digital,packet_scanned}.pdf
+│   └── generate.py
+└── study_visa/                  # vertical: "study_visa_funds" (manifests/study_visa.yaml)
     ├── digital/*.pdf
     ├── scanned/*.png
     ├── combined/{packet_digital,packet_scanned}.pdf
@@ -58,6 +63,7 @@ python samples/customs/generate.py
 python samples/education/generate.py
 python samples/procurement/generate.py
 python samples/healthcare/generate.py
+python samples/study_visa/generate.py
 ```
 
 Each script writes `digital/`, `scanned/`, and `combined/` for its vertical and prints what
@@ -182,6 +188,30 @@ The practitioner name is written with different honorifics/suffixes per document
 - Delete the DEA file → **MISSING** (DEA Registration).
 
 > **Dates note:** the `*_EXPIRY` values in `healthcare/generate.py` must stay in the future.
+
+## Vertical: Study Visa - Financial Evidence (`study_visa_funds`)
+
+An applicant — **Priya Nair** — proving they can fund a degree. This vertical uses the
+`numeric_threshold` primitive to check that money meets a fixed minimum (the classic
+RFE-over-a-bank-statement-detail).
+
+| Document | Key fields (must satisfy the rule for CLEAR) |
+|---|---|
+| Bank Statement | `applicant_name`, `closing_balance` (≥ **USD 25,000**), `statement_date` (within 1 year) |
+| Admission / Offer Letter | `applicant_name`, `institution_name`, `program` |
+| Affidavit of Financial Support | `sponsor_name`, `sponsored_amount` (≥ **USD 25,000**), `signed_date` (present) |
+
+**Deliberate-gap ideas** (edit `study_visa/generate.py`, then regenerate):
+
+- Lower the `Closing Balance` below 25,000 → **DEFICIENT** (below the minimum funds
+  requirement — the `numeric_threshold` check).
+- Set the `Statement Date` to more than a year ago → **DEFICIENT** (stale statement).
+- Change the bank statement's account holder to a different name → **DEFICIENT** (applicant
+  name mismatch vs the admission letter).
+- Remove the affidavit's `Signed Date` → **DEFICIENT** (unsigned affidavit).
+
+> **Dates note:** `STATEMENT_DATE` in `study_visa/generate.py` must stay within the last
+> year; bump it if you test far ahead.
 
 ---
 

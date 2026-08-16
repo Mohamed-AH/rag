@@ -40,15 +40,16 @@ Pure domain package `src/ragchat/audit/` — clean DAG, no I/O:
 - `checklist.py` — **types only**: `DocType`(+`FieldSpec`), `DocumentRequirement` (Layer 1),
   `FieldRule` (Layer 2), `Checklist`. The compiled shape a vertical takes.
 - `checks.py` — reusable, parameterized **check primitives** (`regex_match`, `numeric_match`,
-  `cross_match` text/entity, `date_valid`) + shared helpers (`as_float`, `_same_entity`, …).
-  The vocabulary manifests compose. **No string-expression DSL.**
+  `cross_match` text/entity, `date_valid`, `numeric_threshold` min/max) + shared helpers
+  (`as_float`, `_same_entity`, …). The vocabulary manifests compose. **No string-expression DSL.**
 - `manifest.py` — Pydantic manifest schema (discriminated on rule `type`) + `compile_manifest`
   (manifest → `Checklist`) + registry (`get_checklist`, `available_checklists`,
   `CUSTOMS_CHECKLIST`). Loads every `manifests/*.yaml` once.
 - `../manifests/*.yaml` — **verticals as declarative YAML** (`customs`, `education`,
-  `procurement`, `healthcare`). Adding a vertical = dropping in a file; **zero engine/Python
-  changes**. `procurement`/`healthcare` exercise `date_valid`/`required:false`; entity
-  matching strips honorifics/suffixes (`Dr.`/`MD`) and corporate forms.
+  `procurement`, `healthcare`, `study_visa`). Adding a vertical = dropping in a file; **zero
+  engine/Python changes**. `procurement`/`healthcare` exercise `date_valid`/`required:false`;
+  `study_visa` exercises `numeric_threshold`; entity matching strips honorifics/suffixes
+  (`Dr.`/`MD`) and corporate forms.
 - `engine.py` — `evaluate(checklist, evidence)`; pure; Layer 1 presence + unrecognized-doc
   handling + Layer 2 rules gated on their docs being confidently present.
 - `analyzer.py` — `Analyzer` **protocol** + `GeminiAnalyzer`: **single-pass** classify+extract
