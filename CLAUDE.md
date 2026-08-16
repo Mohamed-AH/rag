@@ -40,15 +40,21 @@ Pure domain package `src/ragchat/audit/` — clean DAG, no I/O:
 - `checklist.py` — **types only**: `DocType`(+`FieldSpec`), `DocumentRequirement` (Layer 1),
   `FieldRule` (Layer 2), `Checklist`. The compiled shape a vertical takes.
 - `checks.py` — reusable, parameterized **check primitives** (`regex_match`, `numeric_match`,
-  `cross_match` text/entity, `date_valid`) + shared helpers (`as_float`, `_same_entity`, …).
-  The vocabulary manifests compose. **No string-expression DSL.**
+  `cross_match` text/entity, `date_valid`, `numeric_threshold` min/max) + shared helpers
+  (`as_float`, `_same_entity`, …). The vocabulary manifests compose. **No string-expression DSL.**
 - `manifest.py` — Pydantic manifest schema (discriminated on rule `type`) + `compile_manifest`
   (manifest → `Checklist`) + registry (`get_checklist`, `available_checklists`,
   `CUSTOMS_CHECKLIST`). Loads every `manifests/*.yaml` once.
-- `../manifests/*.yaml` — **verticals as declarative YAML** (`customs.yaml`,
-  `education.yaml`). Adding a vertical = dropping in a file; **zero engine/Python changes**.
+- `../manifests/*.yaml` — **verticals as declarative YAML** (`customs`, `education`,
+  `procurement`, `healthcare`, `study_visa`). Adding a vertical = dropping in a file; **zero
+  engine/Python changes**. `procurement`/`healthcare` exercise `date_valid`/`required:false`;
+  `study_visa` exercises `numeric_threshold`; entity matching strips honorifics/suffixes
+  (`Dr.`/`MD`) and corporate forms.
 - `engine.py` — `evaluate(checklist, evidence)`; pure; Layer 1 presence + unrecognized-doc
   handling + Layer 2 rules gated on their docs being confidently present.
+- `export.py` — `render_request(report, checklist_name)`: the Phase-3 **missing-items
+  request** (client-ready email text with page-cited evidence). Reads only the unified
+  `GapReport`, so it works for every vertical; surfaced as `AuditResponse.request_summary`.
 - `analyzer.py` — `Analyzer` **protocol** + `GeminiAnalyzer`: **single-pass** classify+extract
   in one structured call per **file**, returning a **list** of documents so a combined
   multi-page packet (one PDF, many docs) is split into all its documents (the only
@@ -66,11 +72,14 @@ Pipeline & surfaces:
   `migrations/versions/0002_packet_auditor_schema.py`.
 - `api/routes.py` — `POST /audit` (multipart, optional `checklist_id` form field →
   vertical), `GET /checklists` (available verticals + names); `api/schemas.py` —
-  `GapReportSchema` (4 buckets + `is_clear`) `.from_report`, `ChecklistOption`.
+  `GapReportSchema` (4 buckets + `is_clear`) `.from_report`, `ChecklistOption`,
+  `AuditResponse.request_summary` (rendered by `export.render_request`).
   `build_audit_service(checklist_id=...)` selects the manifest (defaults to
   `ACTIVE_CHECKLIST`).
 - `cli.py` — `ragchat audit <files...>`. `api/static/index.html` — Ask/Audit mode toggle
-  + **vertical picker dropdown** (populated from `/checklists`, sent as `checklist_id`).
+  + **vertical picker dropdown** (populated from `/checklists`, sent as `checklist_id`)
+  + **Copy request / Download / Print** on the report (Phase-3 export; `@media print`
+  hides chrome for Save-as-PDF).
 
 Tests: `tests/unit/test_{report,checklist,gap_engine,router,audit_service,audit_api,manifest}.py`;
 hermetic eval `tests/eval/` (gold Customs packets, precision/recall gate at 1.0). Fake

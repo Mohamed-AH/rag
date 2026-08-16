@@ -1,0 +1,78 @@
+vertical_id: procurement
+name: Vendor & Procurement Onboarding
+
+# Third vertical, added with ZERO engine/Python changes. Corporate onboarding documents
+# (no consumer PII). The vendor's legal entity name is extracted under one shared key so it
+# can be reconciled across the tax form, insurance certificate, and NDA.
+documents:
+  - id: w9
+    name: W-9 / Taxpayer ID Form
+    fields:
+      - name: legal_entity_name
+        description: The vendor's legal business/entity NAME only (no address, no label).
+      - name: ein
+        description: The Employer Identification Number (tax ID), e.g. 12-3456789.
+
+  - id: coi
+    name: Certificate of Insurance
+    fields:
+      - name: legal_entity_name
+        description: The insured business's legal NAME only.
+      - name: coverage_type
+        description: The type of coverage (e.g. General Liability).
+      - name: policy_expiry
+        description: The policy expiration date (ISO YYYY-MM-DD if possible).
+      - name: coverage_amount
+        description: The each-occurrence / aggregate coverage limit.
+
+  - id: nda
+    name: Mutual Non-Disclosure Agreement
+    fields:
+      - name: legal_entity_name
+        description: The counterparty's legal NAME only.
+      - name: signed_date
+        description: The date the vendor signed the NDA (blank if unsigned).
+      - name: effective_date
+        description: The agreement's effective date.
+
+  # Optional: absence is NOT flagged (required: false), demonstrating optional documents.
+  - id: soc2
+    name: SOC 2 Report
+    required: false
+    fields:
+      - name: report_date
+        description: The date of the SOC 2 report.
+
+rules:
+  - id: rule.ein_format
+    description: The W-9 carries a well-formed EIN (XX-XXXXXXX)
+    type: regex_match
+    doc: w9
+    field: ein
+    pattern: '\d{9}'
+    strip: '[-\s]'
+    label: EIN
+
+  - id: rule.entity_name_consistent
+    description: The vendor's legal name matches across the W-9, insurance certificate, and NDA
+    type: cross_match
+    fields: [legal_entity_name]
+    docs: [w9, coi, nda]
+    comparator: entity
+    threshold: 0.85
+    label: Legal entity name
+
+  - id: rule.coi_not_expired
+    description: The certificate of insurance has not expired
+    type: date_valid
+    doc: coi
+    field: policy_expiry
+    not_expired: true
+    label: Certificate of Insurance
+
+  - id: rule.nda_signed
+    description: The NDA has been signed (carries a signature date)
+    type: date_valid
+    doc: nda
+    field: signed_date
+    label: NDA signature

@@ -14,7 +14,22 @@ samples/
 │   │   └── packet_scanned.pdf
 │   ├── generate.py              # regenerates the above
 │   └── README.md
-└── education/                   # vertical: "education_admissions" (manifests/education.yaml)
+├── education/                   # vertical: "education_admissions" (manifests/education.yaml)
+│   ├── digital/*.pdf
+│   ├── scanned/*.png
+│   ├── combined/{packet_digital,packet_scanned}.pdf
+│   └── generate.py
+├── procurement/                 # vertical: "procurement" (manifests/procurement.yaml)
+│   ├── digital/*.pdf
+│   ├── scanned/*.png
+│   ├── combined/{packet_digital,packet_scanned}.pdf
+│   └── generate.py
+├── healthcare/                  # vertical: "healthcare_credentialing" (manifests/healthcare.yaml)
+│   ├── digital/*.pdf
+│   ├── scanned/*.png
+│   ├── combined/{packet_digital,packet_scanned}.pdf
+│   └── generate.py
+└── study_visa/                  # vertical: "study_visa_funds" (manifests/study_visa.yaml)
     ├── digital/*.pdf
     ├── scanned/*.png
     ├── combined/{packet_digital,packet_scanned}.pdf
@@ -46,6 +61,9 @@ You don't need them just to *use* the committed PDFs/PNGs — only to regenerate
 ```bash
 python samples/customs/generate.py
 python samples/education/generate.py
+python samples/procurement/generate.py
+python samples/healthcare/generate.py
+python samples/study_visa/generate.py
 ```
 
 Each script writes `digital/`, `scanned/`, and `combined/` for its vertical and prints what
@@ -119,6 +137,81 @@ them tolerantly, so a clean packet is still **CLEAR**.
 > **Dates note:** the education fixtures use fixed dates chosen to be valid now
 > (`test_date` recent, `expiry` in the future). If you test far in the future, bump
 > `TEST_DATE` / `EXPIRY` at the top of `education/generate.py` and regenerate.
+
+## Vertical: Vendor & Procurement Onboarding (`procurement`)
+
+A single vendor — **Northwind Traders LLC** — being onboarded with a tax form, insurance
+certificate, NDA, and an optional SOC 2 report. No consumer PII (corporate documents).
+
+| Document | Key fields (must be consistent for CLEAR) |
+|---|---|
+| W-9 / Taxpayer ID | `legal_entity_name`, `ein` (XX-XXXXXXX, e.g. 12-3456789) |
+| Certificate of Insurance | `legal_entity_name`, `coverage_type`, `policy_expiry` (must be **in the future**) |
+| Mutual NDA | `legal_entity_name`, `signed_date` (must be **present**), `effective_date` |
+| SOC 2 Report *(optional)* | `report_date` — `required: false`, so its absence is **not** flagged |
+
+**Deliberate-gap ideas** (edit `procurement/generate.py`, then regenerate):
+
+- Change the W-9 name to a different entity → **DEFICIENT** (legal-name mismatch across
+  the W-9 / COI / NDA).
+- Set the COI `Policy Expiration Date` to a past date → **DEFICIENT** (insurance expired).
+- Remove the NDA `Signed Date` line → **DEFICIENT** (NDA unsigned).
+- Break the EIN to fewer digits → **DEFICIENT** (malformed EIN).
+- Delete the COI file → **MISSING** (Certificate of Insurance).
+
+> **Dates note:** `POLICY_EXPIRY` at the top of `procurement/generate.py` must stay in the
+> future; bump it if you test far ahead.
+
+## Vertical: Healthcare Provider Credentialing (`healthcare_credentialing`)
+
+One clinician — **Dr. Alex Rivera** — being credentialed for hospital privileges. These are
+the provider's professional credentials (no patient PHI), and it's the expiry-heavy vertical
+— three independent not-expired checks.
+
+| Document | Key fields (must be consistent for CLEAR) |
+|---|---|
+| State Medical License | `practitioner_name`, `license_number`, `expiry_date` (future) |
+| DEA Registration | `practitioner_name`, `dea_number` (2 letters + 7 digits), `expiry_date` (future) |
+| Board Certification | `practitioner_name`, `specialty`, `expiry_date` (future) |
+| NPI Confirmation | `practitioner_name`, `npi` (10 digits) |
+| Immunization Record *(optional)* | `completed_date` — `required: false` |
+
+The practitioner name is written with different honorifics/suffixes per document
+(`Dr. Alex Rivera` vs `Alex Rivera, MD`); those are stripped, so a clean packet is **CLEAR**.
+
+**Deliberate-gap ideas** (edit `healthcare/generate.py`, then regenerate):
+
+- Set the license (or DEA, or board) `Expiration Date` to the past → **DEFICIENT** (expired
+  credential — each is checked independently).
+- Break the NPI to fewer than 10 digits, or the DEA number's format → **DEFICIENT**.
+- Change the name on one credential to a different person → **DEFICIENT** (name mismatch).
+- Delete the DEA file → **MISSING** (DEA Registration).
+
+> **Dates note:** the `*_EXPIRY` values in `healthcare/generate.py` must stay in the future.
+
+## Vertical: Study Visa - Financial Evidence (`study_visa_funds`)
+
+An applicant — **Priya Nair** — proving they can fund a degree. This vertical uses the
+`numeric_threshold` primitive to check that money meets a fixed minimum (the classic
+RFE-over-a-bank-statement-detail).
+
+| Document | Key fields (must satisfy the rule for CLEAR) |
+|---|---|
+| Bank Statement | `applicant_name`, `closing_balance` (≥ **USD 25,000**), `statement_date` (within 1 year) |
+| Admission / Offer Letter | `applicant_name`, `institution_name`, `program` |
+| Affidavit of Financial Support | `sponsor_name`, `sponsored_amount` (≥ **USD 25,000**), `signed_date` (present) |
+
+**Deliberate-gap ideas** (edit `study_visa/generate.py`, then regenerate):
+
+- Lower the `Closing Balance` below 25,000 → **DEFICIENT** (below the minimum funds
+  requirement — the `numeric_threshold` check).
+- Set the `Statement Date` to more than a year ago → **DEFICIENT** (stale statement).
+- Change the bank statement's account holder to a different name → **DEFICIENT** (applicant
+  name mismatch vs the admission letter).
+- Remove the affidavit's `Signed Date` → **DEFICIENT** (unsigned affidavit).
+
+> **Dates note:** `STATEMENT_DATE` in `study_visa/generate.py` must stay within the last
+> year; bump it if you test far ahead.
 
 ---
 

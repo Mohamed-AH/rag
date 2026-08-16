@@ -406,8 +406,13 @@ async def audit_packet(
     except Exception as exc:
         raise _map_provider_error(exc, "audit") from exc
 
+    from ragchat.audit.export import render_request
+    from ragchat.audit.manifest import get_checklist
+
+    checklist_name = get_checklist(result.checklist_id).name
     return AuditResponse(
         packet_id=result.packet_id,
         checklist_id=result.checklist_id,
         report=GapReportSchema.from_report(result.report),
+        request_summary=render_request(result.report, checklist_name=checklist_name),
     )

@@ -17,7 +17,7 @@ from pathlib import Path
 from typing import Annotated, Literal
 
 import yaml
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from ragchat.audit import checks
 from ragchat.audit.checklist import (
@@ -92,8 +92,26 @@ class _DateRule(BaseModel):
     label: str
 
 
+class _ThresholdRule(BaseModel):
+    id: str
+    description: str = ""
+    type: Literal["numeric_threshold"]
+    doc: str
+    field: str
+    minimum: float | None = None
+    maximum: float | None = None
+    label: str
+
+    @model_validator(mode="after")
+    def _needs_a_bound(self) -> _ThresholdRule:
+        if self.minimum is None and self.maximum is None:
+            raise ValueError("numeric_threshold requires a 'minimum' and/or a 'maximum'")
+        return self
+
+
 _ManifestRule = Annotated[
-    _RegexRule | _NumericRule | _CrossRule | _DateRule, Field(discriminator="type")
+    _RegexRule | _NumericRule | _CrossRule | _DateRule | _ThresholdRule,
+    Field(discriminator="type"),
 ]
 
 
@@ -145,12 +163,21 @@ def _compile_rule(rule: _ManifestRule) -> FieldRule:
             label=rule.label,
         )
         doc_types = tuple(rule.docs)
-    else:  # _DateRule
+    elif isinstance(rule, _DateRule):
         check = checks.date_valid(
             doc_type=rule.doc,
             field=rule.field,
             max_age_years=rule.max_age_years,
             not_expired=rule.not_expired,
+            label=rule.label,
+        )
+        doc_types = (rule.doc,)
+    else:  # _ThresholdRule
+        check = checks.numeric_threshold(
+            doc_type=rule.doc,
+            field=rule.field,
+            minimum=rule.minimum,
+            maximum=rule.maximum,
             label=rule.label,
         )
         doc_types = (rule.doc,)

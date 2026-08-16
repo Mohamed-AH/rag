@@ -1,0 +1,78 @@
+vertical_id: study_visa_funds
+name: Study Visa - Financial Evidence
+
+# Fifth vertical, zero engine changes — it uses the new numeric_threshold primitive to
+# check that financial evidence meets fixed minimums (the classic RFE-over-a-missing-
+# bank-statement-detail pain). The applicant's name is reconciled across the bank
+# statement and the admission letter.
+documents:
+  - id: bank_statement
+    name: Bank Statement
+    fields:
+      - name: applicant_name
+        description: The account holder's full NAME only (this is the applicant).
+      - name: closing_balance
+        description: The closing/available balance (a number; strip currency).
+      - name: statement_date
+        description: The statement date (ISO YYYY-MM-DD if possible).
+
+  - id: admission_letter
+    name: Admission / Offer Letter
+    fields:
+      - name: applicant_name
+        description: The admitted student's full NAME only.
+      - name: institution_name
+        description: The admitting institution's name.
+      - name: program
+        description: The program/course of study.
+
+  - id: sponsorship_affidavit
+    name: Affidavit of Financial Support
+    fields:
+      - name: sponsor_name
+        description: The sponsor's full NAME only.
+      - name: sponsored_amount
+        description: The amount the sponsor commits to (a number; strip currency).
+      - name: signed_date
+        description: The date the affidavit was signed (blank if unsigned).
+
+rules:
+  - id: rule.min_bank_balance
+    description: The bank balance meets the minimum funds requirement (USD 25,000)
+    type: numeric_threshold
+    doc: bank_statement
+    field: closing_balance
+    minimum: 25000
+    label: Bank balance
+
+  - id: rule.statement_recent
+    description: The bank statement is recent (within the last year)
+    type: date_valid
+    doc: bank_statement
+    field: statement_date
+    max_age_years: 1
+    label: Bank statement date
+
+  - id: rule.applicant_name_consistent
+    description: The applicant name matches between the bank statement and admission letter
+    type: cross_match
+    fields: [applicant_name]
+    docs: [bank_statement, admission_letter]
+    comparator: entity
+    threshold: 0.85
+    label: Applicant name
+
+  - id: rule.sponsor_amount_sufficient
+    description: The sponsored amount meets the minimum funds requirement (USD 25,000)
+    type: numeric_threshold
+    doc: sponsorship_affidavit
+    field: sponsored_amount
+    minimum: 25000
+    label: Sponsored amount
+
+  - id: rule.affidavit_signed
+    description: The affidavit of support has been signed
+    type: date_valid
+    doc: sponsorship_affidavit
+    field: signed_date
+    label: Affidavit signature
