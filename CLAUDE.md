@@ -8,7 +8,8 @@
 Originally `ragchat`, a retrieval-augmented **Q&A** service. We are pivoting it into a
 **Packet Auditor**: ingest a packet of documents → check it against a checklist → return a
 structured **Gap Report** of what's missing/deficient. First vertical: **Customs
-Pre-Clearance**. The old chat survives as a secondary feature (an "Ask" tab).
+Pre-Clearance**. The old chat survives as a secondary feature (Ask via API/CLI — the web
+app is now auditor-only; see the 2026-08-16 UI overhaul log below).
 
 Every vertical is the *same engine* with a *different checklist*. Adding one = adding a
 checklist, not changing engine code.
@@ -76,10 +77,12 @@ Pipeline & surfaces:
   `AuditResponse.request_summary` (rendered by `export.render_request`).
   `build_audit_service(checklist_id=...)` selects the manifest (defaults to
   `ACTIVE_CHECKLIST`).
-- `cli.py` — `ragchat audit <files...>`. `api/static/index.html` — Ask/Audit mode toggle
-  + **vertical picker dropdown** (populated from `/checklists`, sent as `checklist_id`)
-  + **Copy request / Download / Print** on the report (Phase-3 export; `@media print`
-  hides chrome for Save-as-PDF).
+- `cli.py` — `ragchat audit <files...>`. `api/static/index.html` — **auditor-only SPA**
+  (rebuilt from scratch 2026-08-16; no more Ask/Audit toggle) with light/dark + off-canvas
+  drawer + a11y, a **vertical picker dropdown** (populated from `/checklists`, sent as
+  `checklist_id`), drag-and-drop upload, recent-audits history, and **Copy request /
+  Download / Print** on the report (Phase-3 export; `@media print` hides chrome for
+  Save-as-PDF).
 
 Tests: `tests/unit/test_{report,checklist,gap_engine,router,audit_service,audit_api,manifest}.py`;
 hermetic eval `tests/eval/` (gold Customs packets, precision/recall gate at 1.0). Fake
@@ -109,7 +112,8 @@ hermetic eval `tests/eval/` (gold Customs packets, precision/recall gate at 1.0)
 - Added `FieldSpec` + `Checklist.fields_for` to the checklist (extraction schema as data).
 - `/audit` is gated by the **ingest** burst limiter and is **not** counted against
   `DAILY_REQUEST_BUDGET` (that only meters `/ask`). Revisit metering in Phase 2/3.
-- UI is an Ask/Audit **mode toggle**, not a separate page.
+- UI *was* an Ask/Audit **mode toggle**; as of the 2026-08-16 overhaul the web app is
+  **auditor-only** and Ask is reachable only via API/CLI.
 
 ## Known limitations to address (Phase 2+ candidates)
 
@@ -256,3 +260,34 @@ fallback before flagging `net_weight` missing.
      - scanned-PDF/image path behavior
      - latency/cost per packet
 -->
+
+### UI overhaul + docs refresh (2026-08-16)
+
+The web app began as an "Ask your PDF" chat with an Audit mode bolted on; the UI had
+become a mess. Rebuilt `api/static/index.html` **from scratch** as an auditor-only SPA
+(the Ask flow stays reachable via API/CLI, not the web UI). Still a dependency-free
+single static file served by FastAPI (so blob download / `window.print` work — not a
+claude.ai artifact). Delivered as planned Phase 1 of a phased overhaul:
+
+- **Genuine light/dark** — system default via `@media (prefers-color-scheme)` guarded by
+  `:root:not([data-theme="light"])`, plus an explicit toggle persisted to `localStorage`
+  (`[data-theme="dark"]` wins both ways). Design-token palette for both.
+- **Full responsiveness** — sidebar collapses to an off-canvas drawer (hamburger + scrim +
+  Escape) at ≤880px.
+- **Accessibility** — skip-link, ARIA roles/labels, `aria-live` status regions,
+  focus-visible rings, keyboard-operable dropzone (Enter/Space), `prefers-reduced-motion`.
+- Real drag-and-drop upload + file chips; vertical picker from `/checklists`; Google-only
+  BYO key (`sessionStorage`, `X-Google-Api-Key`); four-bucket report with colour-coded
+  findings + expandable source pointers; Copy/Download/Print (Phase-3 export) with a print
+  stylesheet; recent-audits history in the sidebar (`sessionStorage`, 12 max).
+- JS syntax-checked with `node --check`; served-UI integration test updated to assert the
+  new "Packet Auditor" title. 141 tests green, ruff/mypy clean.
+
+**Docs refreshed (Phase 2 of the overhaul).** `README.md` and `docs/ARCHITECTURE.md`
+rewritten around the auditor (Ask demoted to a clearly-marked secondary section). README
+leads with the four-state model, the "verticals are YAML not code" story, and the audit
+pipeline mermaid; ARCHITECTURE gained a Part I (auditor design decisions) ahead of the
+preserved Part II (Ask-flow history the auditor's DI/testing foundations still rest on).
+
+**Next: Reviewer workflow** (Phase 3 of the pivot proper) — accept/override per finding +
+server-backed audit history/re-audit. Explicitly requested to follow the UI+docs work.
