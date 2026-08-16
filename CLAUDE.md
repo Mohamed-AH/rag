@@ -45,9 +45,10 @@ Pure domain package `src/ragchat/audit/` — clean DAG, no I/O:
 - `manifest.py` — Pydantic manifest schema (discriminated on rule `type`) + `compile_manifest`
   (manifest → `Checklist`) + registry (`get_checklist`, `available_checklists`,
   `CUSTOMS_CHECKLIST`). Loads every `manifests/*.yaml` once.
-- `../manifests/*.yaml` — **verticals as declarative YAML** (`customs.yaml`,
-  `education.yaml`, `procurement.yaml`). Adding a vertical = dropping in a file; **zero
-  engine/Python changes**. `procurement` exercises `date_valid`/`required:false`.
+- `../manifests/*.yaml` — **verticals as declarative YAML** (`customs`, `education`,
+  `procurement`, `healthcare`). Adding a vertical = dropping in a file; **zero engine/Python
+  changes**. `procurement`/`healthcare` exercise `date_valid`/`required:false`; entity
+  matching strips honorifics/suffixes (`Dr.`/`MD`) and corporate forms.
 - `engine.py` — `evaluate(checklist, evidence)`; pure; Layer 1 presence + unrecognized-doc
   handling + Layer 2 rules gated on their docs being confidently present.
 - `analyzer.py` — `Analyzer` **protocol** + `GeminiAnalyzer`: **single-pass** classify+extract

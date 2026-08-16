@@ -40,6 +40,7 @@ def test_installed_verticals_are_available() -> None:
     assert "customs" in available
     assert "education_admissions" in available
     assert "procurement" in available
+    assert "healthcare_credentialing" in available
 
 
 def test_unknown_checklist_raises() -> None:
@@ -230,4 +231,67 @@ def test_procurement_unsigned_nda_is_deficient() -> None:
     )
     report = evaluate(get_checklist("procurement"), evidence)
     finding = next(f for f in report.deficient if f.requirement_id == "rule.nda_signed")
+    assert finding.status is FindingStatus.DEFICIENT
+
+
+# --- Fourth vertical: healthcare credentialing (expiry-heavy, zero code) ----
+
+
+def _credentialing_docs(
+    *, name: str = "Dr. Alex Rivera", npi: str = "1234567893", license_expiry: str | None = None
+) -> PacketEvidence:
+    future = (date.today() + timedelta(days=365)).isoformat()
+    return PacketEvidence(
+        (
+            _doc(
+                "medical_license",
+                "medical_license",
+                practitioner_name=name,
+                license_number="MD-556677",
+                expiry_date=license_expiry or future,
+            ),
+            _doc(
+                "dea_registration",
+                "dea_registration",
+                practitioner_name="Alex Rivera",
+                dea_number="BR1234563",
+                expiry_date=future,
+            ),
+            _doc(
+                "board_certification",
+                "board_certification",
+                practitioner_name="Alex Rivera, MD",
+                specialty="Internal Medicine",
+                expiry_date=future,
+            ),
+            _doc("npi_record", "npi_record", practitioner_name="Alex Rivera", npi=npi),
+        )
+    )
+
+
+def test_credentialing_complete_packet_is_clear() -> None:
+    report = evaluate(get_checklist("healthcare_credentialing"), _credentialing_docs())
+    assert report.is_clear is True
+
+
+def test_credentialing_expired_license_is_deficient() -> None:
+    past = (date.today() - timedelta(days=5)).isoformat()
+    report = evaluate(
+        get_checklist("healthcare_credentialing"), _credentialing_docs(license_expiry=past)
+    )
+    finding = next(f for f in report.deficient if f.requirement_id == "rule.license_not_expired")
+    assert finding.status is FindingStatus.DEFICIENT
+
+
+def test_credentialing_malformed_npi_is_deficient() -> None:
+    report = evaluate(get_checklist("healthcare_credentialing"), _credentialing_docs(npi="123"))
+    finding = next(f for f in report.deficient if f.requirement_id == "rule.npi_format")
+    assert finding.status is FindingStatus.DEFICIENT
+
+
+def test_credentialing_name_mismatch_is_deficient() -> None:
+    report = evaluate(
+        get_checklist("healthcare_credentialing"), _credentialing_docs(name="Dr. Someone Else")
+    )
+    finding = next(f for f in report.deficient if f.requirement_id == "rule.name_consistent")
     assert finding.status is FindingStatus.DEFICIENT

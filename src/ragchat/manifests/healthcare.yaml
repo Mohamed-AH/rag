@@ -1,0 +1,105 @@
+vertical_id: healthcare_credentialing
+name: Healthcare Provider Credentialing
+
+# Fourth vertical, zero engine/Python changes. Credentialing a clinician for hospital
+# privileges — professional credentials, not patient PHI. The practitioner's name is
+# extracted under one shared key so it reconciles across every credential, and each
+# credential's expiry is checked independently.
+documents:
+  - id: medical_license
+    name: State Medical License
+    fields:
+      - name: practitioner_name
+        description: The licensed practitioner's full NAME only (no title/suffix labels).
+      - name: license_number
+        description: The state medical license number.
+      - name: expiry_date
+        description: The license expiration date (ISO YYYY-MM-DD if possible).
+
+  - id: dea_registration
+    name: DEA Registration
+    fields:
+      - name: practitioner_name
+        description: The registrant's full NAME only.
+      - name: dea_number
+        description: The DEA registration number (two letters then seven digits).
+      - name: expiry_date
+        description: The DEA registration expiration date.
+
+  - id: board_certification
+    name: Board Certification
+    fields:
+      - name: practitioner_name
+        description: The certified practitioner's full NAME only.
+      - name: specialty
+        description: The certifying board / specialty.
+      - name: expiry_date
+        description: The certification expiration / valid-through date.
+
+  - id: npi_record
+    name: NPI Confirmation
+    fields:
+      - name: practitioner_name
+        description: The provider's full NAME only.
+      - name: npi
+        description: The 10-digit National Provider Identifier.
+
+  # Optional: absence is not flagged.
+  - id: immunization
+    name: Immunization Record
+    required: false
+    fields:
+      - name: completed_date
+        description: The date immunizations were completed/verified.
+
+rules:
+  - id: rule.npi_format
+    description: The NPI is a well-formed 10-digit identifier
+    type: regex_match
+    doc: npi_record
+    field: npi
+    pattern: '\d{10}'
+    strip: '[-\s]'
+    label: NPI
+
+  - id: rule.dea_format
+    description: The DEA number is well-formed (two letters then seven digits)
+    type: regex_match
+    doc: dea_registration
+    field: dea_number
+    pattern: '[A-Za-z]{2}\d{7}'
+    strip: '[-\s]'
+    label: DEA number
+
+  - id: rule.name_consistent
+    description: The practitioner name matches across licence, DEA, board cert, and NPI
+    type: cross_match
+    fields: [practitioner_name]
+    docs: [medical_license, dea_registration, board_certification, npi_record]
+    comparator: entity
+    threshold: 0.85
+    label: Practitioner name
+
+  - id: rule.license_not_expired
+    description: The state medical license has not expired
+    type: date_valid
+    doc: medical_license
+    field: expiry_date
+    not_expired: true
+    label: Medical license
+
+  - id: rule.dea_not_expired
+    description: The DEA registration has not expired
+    type: date_valid
+    doc: dea_registration
+    field: expiry_date
+    not_expired: true
+    label: DEA registration
+
+  - id: rule.board_not_expired
+    description: The board certification has not lapsed
+    type: date_valid
+    doc: board_certification
+    field: expiry_date
+    not_expired: true
+    label: Board certification

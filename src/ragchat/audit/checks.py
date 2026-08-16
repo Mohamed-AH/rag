@@ -105,6 +105,7 @@ def _close(a: float, b: float, tolerance: float) -> bool:
 
 _ENTITY_STOPWORDS = frozenset(
     {
+        # corporate forms
         "ltd",
         "limited",
         "inc",
@@ -120,6 +121,7 @@ _ENTITY_STOPWORDS = frozenset(
         "bv",
         "pvt",
         "the",
+        # party/role labels
         "exporter",
         "shipper",
         "seller",
@@ -128,6 +130,23 @@ _ENTITY_STOPWORDS = frozenset(
         "importer",
         "to",
         "from",
+        # personal honorifics & suffixes (so "Dr. Alex Rivera" == "Alex Rivera, MD")
+        "dr",
+        "mr",
+        "mrs",
+        "ms",
+        "mx",
+        "prof",
+        "professor",
+        "md",
+        "do",
+        "phd",
+        "esq",
+        "jr",
+        "sr",
+        "ii",
+        "iii",
+        "iv",
     }
 )
 

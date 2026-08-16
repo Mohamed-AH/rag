@@ -19,7 +19,12 @@ samples/
 │   ├── scanned/*.png
 │   ├── combined/{packet_digital,packet_scanned}.pdf
 │   └── generate.py
-└── procurement/                 # vertical: "procurement" (manifests/procurement.yaml)
+├── procurement/                 # vertical: "procurement" (manifests/procurement.yaml)
+│   ├── digital/*.pdf
+│   ├── scanned/*.png
+│   ├── combined/{packet_digital,packet_scanned}.pdf
+│   └── generate.py
+└── healthcare/                  # vertical: "healthcare_credentialing" (manifests/healthcare.yaml)
     ├── digital/*.pdf
     ├── scanned/*.png
     ├── combined/{packet_digital,packet_scanned}.pdf
@@ -52,6 +57,7 @@ You don't need them just to *use* the committed PDFs/PNGs — only to regenerate
 python samples/customs/generate.py
 python samples/education/generate.py
 python samples/procurement/generate.py
+python samples/healthcare/generate.py
 ```
 
 Each script writes `digital/`, `scanned/`, and `combined/` for its vertical and prints what
@@ -149,6 +155,33 @@ certificate, NDA, and an optional SOC 2 report. No consumer PII (corporate docum
 
 > **Dates note:** `POLICY_EXPIRY` at the top of `procurement/generate.py` must stay in the
 > future; bump it if you test far ahead.
+
+## Vertical: Healthcare Provider Credentialing (`healthcare_credentialing`)
+
+One clinician — **Dr. Alex Rivera** — being credentialed for hospital privileges. These are
+the provider's professional credentials (no patient PHI), and it's the expiry-heavy vertical
+— three independent not-expired checks.
+
+| Document | Key fields (must be consistent for CLEAR) |
+|---|---|
+| State Medical License | `practitioner_name`, `license_number`, `expiry_date` (future) |
+| DEA Registration | `practitioner_name`, `dea_number` (2 letters + 7 digits), `expiry_date` (future) |
+| Board Certification | `practitioner_name`, `specialty`, `expiry_date` (future) |
+| NPI Confirmation | `practitioner_name`, `npi` (10 digits) |
+| Immunization Record *(optional)* | `completed_date` — `required: false` |
+
+The practitioner name is written with different honorifics/suffixes per document
+(`Dr. Alex Rivera` vs `Alex Rivera, MD`); those are stripped, so a clean packet is **CLEAR**.
+
+**Deliberate-gap ideas** (edit `healthcare/generate.py`, then regenerate):
+
+- Set the license (or DEA, or board) `Expiration Date` to the past → **DEFICIENT** (expired
+  credential — each is checked independently).
+- Break the NPI to fewer than 10 digits, or the DEA number's format → **DEFICIENT**.
+- Change the name on one credential to a different person → **DEFICIENT** (name mismatch).
+- Delete the DEA file → **MISSING** (DEA Registration).
+
+> **Dates note:** the `*_EXPIRY` values in `healthcare/generate.py` must stay in the future.
 
 ---
 
