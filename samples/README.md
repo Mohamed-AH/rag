@@ -14,7 +14,12 @@ samples/
 │   │   └── packet_scanned.pdf
 │   ├── generate.py              # regenerates the above
 │   └── README.md
-└── education/                   # vertical: "education_admissions" (manifests/education.yaml)
+├── education/                   # vertical: "education_admissions" (manifests/education.yaml)
+│   ├── digital/*.pdf
+│   ├── scanned/*.png
+│   ├── combined/{packet_digital,packet_scanned}.pdf
+│   └── generate.py
+└── procurement/                 # vertical: "procurement" (manifests/procurement.yaml)
     ├── digital/*.pdf
     ├── scanned/*.png
     ├── combined/{packet_digital,packet_scanned}.pdf
@@ -46,6 +51,7 @@ You don't need them just to *use* the committed PDFs/PNGs — only to regenerate
 ```bash
 python samples/customs/generate.py
 python samples/education/generate.py
+python samples/procurement/generate.py
 ```
 
 Each script writes `digital/`, `scanned/`, and `combined/` for its vertical and prints what
@@ -119,6 +125,30 @@ them tolerantly, so a clean packet is still **CLEAR**.
 > **Dates note:** the education fixtures use fixed dates chosen to be valid now
 > (`test_date` recent, `expiry` in the future). If you test far in the future, bump
 > `TEST_DATE` / `EXPIRY` at the top of `education/generate.py` and regenerate.
+
+## Vertical: Vendor & Procurement Onboarding (`procurement`)
+
+A single vendor — **Northwind Traders LLC** — being onboarded with a tax form, insurance
+certificate, NDA, and an optional SOC 2 report. No consumer PII (corporate documents).
+
+| Document | Key fields (must be consistent for CLEAR) |
+|---|---|
+| W-9 / Taxpayer ID | `legal_entity_name`, `ein` (XX-XXXXXXX, e.g. 12-3456789) |
+| Certificate of Insurance | `legal_entity_name`, `coverage_type`, `policy_expiry` (must be **in the future**) |
+| Mutual NDA | `legal_entity_name`, `signed_date` (must be **present**), `effective_date` |
+| SOC 2 Report *(optional)* | `report_date` — `required: false`, so its absence is **not** flagged |
+
+**Deliberate-gap ideas** (edit `procurement/generate.py`, then regenerate):
+
+- Change the W-9 name to a different entity → **DEFICIENT** (legal-name mismatch across
+  the W-9 / COI / NDA).
+- Set the COI `Policy Expiration Date` to a past date → **DEFICIENT** (insurance expired).
+- Remove the NDA `Signed Date` line → **DEFICIENT** (NDA unsigned).
+- Break the EIN to fewer digits → **DEFICIENT** (malformed EIN).
+- Delete the COI file → **MISSING** (Certificate of Insurance).
+
+> **Dates note:** `POLICY_EXPIRY` at the top of `procurement/generate.py` must stay in the
+> future; bump it if you test far ahead.
 
 ---
 

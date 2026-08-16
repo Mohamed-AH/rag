@@ -39,6 +39,7 @@ def test_installed_verticals_are_available() -> None:
     available = available_checklists()
     assert "customs" in available
     assert "education_admissions" in available
+    assert "procurement" in available
 
 
 def test_unknown_checklist_raises() -> None:
@@ -156,3 +157,77 @@ def test_education_missing_document_is_reported() -> None:
     )
     report = evaluate(get_checklist("education_admissions"), evidence)
     assert any(f.requirement_id == "doc.language_score" for f in report.missing)
+
+
+# --- Third vertical: procurement onboarding (also zero engine code) --------
+
+
+def _procurement_docs(
+    *,
+    entity: str = "Northwind Traders LLC",
+    coi_expiry: str | None = None,
+    signed: str = "2026-01-15",
+) -> PacketEvidence:
+    future = (date.today() + timedelta(days=365)).isoformat()
+    return PacketEvidence(
+        (
+            _doc("w9", "w9", legal_entity_name=entity, ein="12-3456789"),
+            _doc(
+                "coi",
+                "coi",
+                legal_entity_name="Northwind Traders LLC",
+                coverage_type="General Liability",
+                policy_expiry=coi_expiry or future,
+                coverage_amount="2,000,000",
+            ),
+            _doc(
+                "nda",
+                "nda",
+                legal_entity_name="Northwind Traders LLC",
+                signed_date=signed,
+                effective_date="2026-01-15",
+            ),
+        )
+    )
+
+
+def test_procurement_complete_packet_is_clear() -> None:
+    # SOC 2 is optional (required: false) — its absence must not be flagged.
+    report = evaluate(get_checklist("procurement"), _procurement_docs())
+    assert report.is_clear is True
+
+
+def test_procurement_expired_insurance_is_deficient() -> None:
+    past = (date.today() - timedelta(days=10)).isoformat()
+    report = evaluate(get_checklist("procurement"), _procurement_docs(coi_expiry=past))
+    finding = next(f for f in report.deficient if f.requirement_id == "rule.coi_not_expired")
+    assert finding.status is FindingStatus.DEFICIENT
+
+
+def test_procurement_entity_mismatch_is_deficient() -> None:
+    report = evaluate(get_checklist("procurement"), _procurement_docs(entity="Different Corp"))
+    finding = next(f for f in report.deficient if f.requirement_id == "rule.entity_name_consistent")
+    assert finding.status is FindingStatus.DEFICIENT
+
+
+def test_procurement_unsigned_nda_is_deficient() -> None:
+    # No signed_date at all -> the NDA-signature check reports it missing.
+    evidence = PacketEvidence(
+        (
+            _doc("w9", "w9", legal_entity_name="Northwind Traders LLC", ein="12-3456789"),
+            _doc(
+                "coi",
+                "coi",
+                legal_entity_name="Northwind Traders LLC",
+                coverage_type="General Liability",
+                policy_expiry="2030-01-01",
+                coverage_amount="2,000,000",
+            ),
+            _doc(
+                "nda", "nda", legal_entity_name="Northwind Traders LLC", effective_date="2026-01-15"
+            ),
+        )
+    )
+    report = evaluate(get_checklist("procurement"), evidence)
+    finding = next(f for f in report.deficient if f.requirement_id == "rule.nda_signed")
+    assert finding.status is FindingStatus.DEFICIENT
