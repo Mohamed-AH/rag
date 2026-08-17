@@ -99,7 +99,31 @@ so it is exhaustively and instantly testable. The one component that must call a
 (the analyzer) sits behind a protocol and is injected, so the **entire pipeline is
 hermetically testable** with a `FakeAnalyzer`: the CI suite needs no keys and no network.
 
-### 8. v1 scope: completeness & consistency only
+### 8. Reviewer overlay: the machine never has the last word
+
+**Decision:** An audit's Gap Report is **persisted** (table `packet_findings`), and a human
+reviewer can **accept** a finding (confirm the machine verdict) or **override** it (set a
+different status, with a note). The reviewer decision lives in nullable `review_*` columns
+*beside* the machine verdict, which is written once and never mutated.
+
+**Why (persist findings):** The original design computed the report and returned it without
+storing it, so a packet could not be re-opened or reviewed. Persisting the findings is what
+turns a one-shot audit into a durable, revisitable record with a server-backed history.
+
+**Why (an overlay, not a mutation):** Keeping the machine verdict and the human decision as
+separate columns preserves the audit trail — you can always see what the model said *and*
+what the reviewer decided. The *effective* status (override if overridden, else machine) is
+computed by the pure `audit/review.py` module (`ReviewedFinding.effective_status`,
+`effective_report`), which re-buckets a report by effective status so `is_clear`, the four
+buckets, and the re-rendered missing-items request all reflect human decisions. Validation
+lives there too: an override must specify a status *and change it* (accepting is how you
+confirm the machine), so every stored decision is meaningful.
+
+**Testability:** `AuditReviewService` is relational-only — no model calls, no keys — so the
+whole workflow (list history, re-open, accept/override, session scoping) is tested against
+SQLite with no network, same as the rest of the suite.
+
+### 9. v1 scope: completeness & consistency only
 
 The engine checks that a packet is *complete* and *internally consistent*. It does **not**
 attempt authenticity or fraud detection (is this invoice forged?) in v1. Cross-document
@@ -121,12 +145,16 @@ Pure domain package `src/ragchat/audit/` (a clean DAG, no I/O):
 | `../manifests/*.yaml` | Verticals as declarative YAML |
 | `engine.py` | `evaluate(checklist, evidence)` — pure; L1 presence + gated L2 rules |
 | `export.py` | `render_request(report, checklist_name)` — client-ready missing-items email from any report |
+| `review.py` | Reviewer overlay: `ReviewAction`, `Review`, `ReviewedFinding` (effective status), `effective_report` |
 | `analyzer.py` | `Analyzer` protocol + `GeminiAnalyzer` (single-pass classify+extract → list of documents) |
 
 Pipeline & surfaces: `ingestion/router.py` (path selection) → `analyzer` → `engine`;
 `service.py` (`AuditService.audit_packet` composes them, enforces the file cap before any
-model call, persists atomically); `api/routes.py` (`POST /audit`, `GET /checklists`);
-`cli.py` (`ragchat audit`); `api/static/index.html` (the web app).
+model call, persists the packet *and its findings* atomically; `AuditReviewService` reads
+history and records review decisions); `api/routes.py` (`POST /audit`, `GET /checklists`,
+`GET /audits`, `GET /audits/{id}`, `POST /audits/{id}/findings/{rid}/review`); `cli.py`
+(`ragchat audit`); `api/static/index.html` (the web app, with server-backed history and
+per-finding accept/override).
 
 ---
 
@@ -193,7 +221,7 @@ shutdown.
 
 | Scope | What it covers | How it stays hermetic |
 |-------|----------------|-----------------------|
-| Unit | Gap engine, report/checklist types, manifest compilation, intake router, audit service, export, parser, config | Pure functions; `FakeAnalyzer`; SQLite in-memory for the DB |
+| Unit | Gap engine, report/checklist types, manifest compilation, intake router, audit service, export, review overlay + workflow, parser, config | Pure functions; `FakeAnalyzer`; SQLite in-memory for the DB |
 | Eval | Customs precision/recall against gold packets (gated at 1.0) | Fake analyzer feeds engineered `PacketEvidence`; pure engine |
 | Integration | Full HTTP request → routing → validation → serialization | Real FastAPI app; services overridden with fakes |
 
@@ -205,11 +233,11 @@ shutdown.
   problems seen in production rather than invented ones.
 
 Schema is managed by **Alembic** with an auto-bootstrap in `init_db()`. Migration `0002`
-adds the `packets` / `packet_documents` tables (cascade from `sessions`).
+adds the `packets` / `packet_documents` tables and `0003` adds `packet_findings` (all
+cascade from `sessions`).
 
 ## Possible next steps
 
-- **Reviewer workflow:** accept/override per finding, with a server-backed audit history.
 - Confidence-threshold calibration against a larger real-document eval set.
 - Budget-metering the audit path (currently gated only by the ingest burst limiter).
 - Weight↔quantity reconciliation (a derived cross-metric rule) and more verticals.

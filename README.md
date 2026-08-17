@@ -36,6 +36,13 @@ emitting a false `missing`/`deficient`:
 Every finding carries a confidence score and a **source pointer** (`doc_id`, page,
 snippet), so the report is auditable, not a black box.
 
+The machine never has the last word: every audit is persisted, and a reviewer can
+**accept** a verdict or **override** it (e.g. mark a `needs_review` field `present` after
+checking it by hand, with a note). The report re-buckets to the effective, post-review
+state — an overridden `missing` becomes `present`, the verdict flips, the missing-items
+request re-renders — while the original machine verdict is kept for the audit trail. Past
+audits are re-openable from a server-backed history.
+
 ```mermaid
 flowchart LR
     F[Packet files<br/>PDF · scans · images · txt] --> R[Intake router]
@@ -134,6 +141,9 @@ stored.
 | GET    | `/health`       | Readiness probe — `SELECT 1`; **503** if the DB is unreachable |
 | GET    | `/checklists`   | Available audit verticals (`id` + display name) for the picker |
 | POST   | `/audit`        | multipart upload of the packet (+ optional `checklist_id`) → Gap Report + rendered missing-items request |
+| GET    | `/audits`       | This session's audit history (newest first) with effective, post-review counts |
+| GET    | `/audits/{id}`  | Re-open a past audit with reviewer decisions applied |
+| POST   | `/audits/{id}/findings/{rid}/review` | Accept or override one finding's verdict |
 | POST   | `/ask`          | *(secondary)* `{ "question": "..." }` → grounded answer + sources |
 | POST   | `/ingest/file`  | *(secondary)* upload a file to build the Ask knowledge base |
 
