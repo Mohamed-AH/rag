@@ -215,19 +215,32 @@ def _is_provider_quota_error(message: str) -> bool:
     return "RESOURCE_EXHAUSTED" in upper or "429" in upper or "QUOTA" in upper
 
 
+_SECRETISH = re.compile(r"(AIza[\w-]{8,}|gsk_[\w-]{8,}|sk-[\w-]{8,}|[A-Za-z0-9_-]{32,})")
+
+
+def _scrub(message: str) -> str:
+    """Redact anything that looks like an API key before showing a provider message."""
+    return _SECRETISH.sub("[redacted]", message)
+
+
 def _map_provider_error(exc: Exception, action: str) -> HTTPException:
-    """Turn a provider failure into a clean HTTP error the UI can display."""
-    message = str(exc)
+    """Turn a provider failure into a clean HTTP error the UI can display.
+
+    The provider's own message is surfaced (scrubbed + truncated) so a rate-limit, capacity,
+    or invalid-model error can be told apart from a genuine quota exhaustion — essential when
+    debugging a specific fallback rung.
+    """
+    hint = _scrub(str(exc))[:200]
     logger.exception("%s failed for session", action)
-    if _is_provider_quota_error(message):
+    if _is_provider_quota_error(str(exc)):
         return _too_many(
             60,
-            "The shared model quota is exhausted right now — please try again shortly. "
-            "(This demo runs on a limited free-tier key.)",
+            "The model is rate-limited or out of quota right now — retry shortly, or add "
+            f"your own API key. (provider said: {hint})",
         )
     return HTTPException(
         status_code=status.HTTP_502_BAD_GATEWAY,
-        detail=f"The model request failed: {message}"[:400],
+        detail=f"The model request failed: {hint}",
     )
 
 

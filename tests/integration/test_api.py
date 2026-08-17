@@ -173,3 +173,17 @@ def test_openapi_schema_is_served(api_client) -> None:
     paths = response.json()["paths"]
     assert "/ask" in paths
     assert "/ingest/file" in paths
+
+
+def test_provider_error_surfaces_message_and_scrubs_keys() -> None:
+    from ragchat.api.routes import _map_provider_error, _scrub
+
+    # A key-like token is redacted before it can reach the client.
+    assert "AIzaSED_this_is_a_fake_key_1234567890" not in _scrub(
+        "denied for key AIzaSED_this_is_a_fake_key_1234567890"
+    )
+    # The provider's real message is surfaced (not hidden behind a generic string).
+    exc = RuntimeError("429 Requests rate limit exceeded for ministral-3b-2512")
+    detail = _map_provider_error(exc, "audit").detail
+    assert "rate limit" in str(detail).lower()
+    assert "ministral-3b-2512" in str(detail)
