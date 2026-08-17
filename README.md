@@ -14,7 +14,7 @@ Built on **Google Gemini** (single-pass multimodal classify-and-extract), a pure
 retrieval-augmented Q&A service (see [Ask](#ask-the-secondary-flow) below), which
 survives as a secondary feature.
 
-**▶ Live demo: <https://askyourdoc-ulfq.onrender.com/>** — pick a vertical, drop a packet,
+**▶ Live demo: <https://packetaudit-ulfq.onrender.com/>** — pick a vertical, drop a packet,
 read the Gap Report. Need documents to try it on? Generate sample packets at
 <https://testsampledocs.netlify.app>. (Free hosting sleeps when idle, so the first request
 may take a moment to wake.)

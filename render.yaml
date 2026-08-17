@@ -6,7 +6,7 @@
 services:
   # The FastAPI service: JSON API + built-in web UI at /.
   - type: web
-    name: askyourdoc
+    name: packetaudit
     runtime: docker
     dockerfilePath: ./docker/Dockerfile
     dockerContext: .
