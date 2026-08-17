@@ -121,6 +121,20 @@ class Settings(BaseSettings):
         description="Free shared-key asks/day per user before they must supply their own "
         "keys (0 = unlimited). Enforced per hashed-IP + cookie.",
     )
+    daily_audit_free_allowance: int = Field(
+        default=15,
+        ge=0,
+        description="Free shared-key audits/day per user (hashed-IP) before they must supply "
+        "their own Google key (0 = unlimited). One audit = one model call per file, so this "
+        "is metered separately from /ask and keyed on IP (not the client-set cookie).",
+    )
+    daily_audit_budget: int = Field(
+        default=150,
+        ge=0,
+        description="Max shared-key audits/day across the whole instance (0 = unlimited). "
+        "The absolute ceiling that keeps audit usage within the provider free tier even if "
+        "the per-user limit is evaded.",
+    )
     usage_hash_salt: SecretStr = Field(
         default=SecretStr("change-me-in-prod"),
         description="Salt for hashing client IPs before storing usage counters (privacy). "

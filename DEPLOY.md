@@ -73,6 +73,8 @@ All limits are environment variables you can change in the Render dashboard:
 | `RATE_LIMIT_INGESTS_PER_HOUR` | `20` | Per-session upload burst limit |
 | `DAILY_FREE_ALLOWANCE` | `10` | Free shared-key asks/day **per user** before they're prompted for their own keys (0 = unlimited) |
 | `DAILY_REQUEST_BUDGET` | `1000` | Instance-wide shared-key asks/day — the absolute cost ceiling (0 = off) |
+| `DAILY_AUDIT_FREE_ALLOWANCE` | `15` | Free shared-key **audits**/day **per user** (hashed IP) before the own-key prompt (0 = unlimited) |
+| `DAILY_AUDIT_BUDGET` | `150` | Instance-wide shared-key audits/day — the audit cost ceiling (0 = off) |
 | `USAGE_HASH_SALT` | `change-me-in-prod` | Secret salt for hashing client IPs in usage counters; set a real value |
 | `TRUSTED_PROXY_HOPS` | `1` | Reverse-proxy hops in front of the app (Render = 1). The real client IP is read that many entries from the right of `X-Forwarded-For`, so client-prepended values can't spoof a fresh allowance. |
 
@@ -83,8 +85,16 @@ salted-hashed IP + cookie, stored durably in Postgres so limits survive restarts
 that's used up, the UI prompts for the visitor's **own** Cohere + Gemini keys, which are
 sent per request (headers `X-Cohere-Api-Key` / `X-Google-Api-Key`) and **never stored or
 logged**; BYO requests bypass the shared-key limits. `DAILY_REQUEST_BUDGET` is the
-instance-wide backstop that guarantees total shared-key usage stays within the provider
-free tier no matter what.
+instance-wide backstop that guarantees total shared-key `/ask` usage stays within the
+provider free tier no matter what.
+
+**The audit path is metered separately.** One audit is a Gemini call *per file*, so `/audit`
+has its own guard: a per-user daily allowance (`DAILY_AUDIT_FREE_ALLOWANCE`) and an
+instance-wide ceiling (`DAILY_AUDIT_BUDGET`), both keyed on the **salted-hashed client IP**
+rather than the session cookie — so a visitor can't reset their allowance just by dropping
+the cookie to mint a fresh session. A Google-only BYO key (`X-Google-Api-Key`) bypasses both
+(the audit path needs no Cohere key). Exceeding the per-user allowance returns a `429` the UI
+turns into an own-key prompt; exceeding the instance ceiling returns a plain `429`.
 
 ## Caveats (by design, for a free demo)
 

@@ -277,6 +277,58 @@ def guard_ingest(request: Request, session_id: str = Depends(get_session_id)) ->
         raise _too_many(3600, "Too many uploads; try again later.")
 
 
+def guard_audit(
+    request: Request,
+    response: Response,
+    session_factory: Callable[[], DbSession] = Depends(get_db_session_factory),
+) -> None:
+    """Guard the audit endpoint: IP-keyed burst limit + durable daily allowance/budget.
+
+    A bring-your-own **Google** key bypasses every shared-key limit (audit needs only
+    Gemini, so a Google-only key suffices to spend one's own quota). Otherwise the limits
+    are keyed on the **hashed client IP**, not the client-set session cookie — an audit is
+    one model call per file, the most expensive path, so it must not be evadable by simply
+    dropping the cookie to mint a fresh session. Counters are durable (survive restarts).
+    """
+    if _byo_google_key(request):
+        return
+
+    guards = _get_guards(request)
+    ip = _ip_scope(request, guards)
+    # Burst limit, IP-keyed (namespaced so it can't collide with ingest's session keys).
+    if not guards.ingest_limiter.allow("audit:" + ip):
+        raise _too_many(3600, "Too many audits; slow down, or add your own Google API key.")
+
+    day = datetime.now(UTC).strftime("%Y-%m-%d")
+    with session_factory() as db:
+        remaining = -1
+        if guards.daily_audit_allowance > 0:
+            ip_count = repository.bump_usage(db, "audit_" + ip, day)
+            if ip_count > guards.daily_audit_allowance:
+                db.rollback()
+                raise _too_many(
+                    3600,
+                    {
+                        "message": "You've used your free audits for today. Add your own "
+                        "Google API key to keep going.",
+                        "byok_required": True,
+                    },
+                )
+            remaining = guards.daily_audit_allowance - ip_count
+        if guards.daily_audit_budget > 0:
+            total = repository.bump_usage(db, "audit_global", day)
+            if total > guards.daily_audit_budget:
+                db.rollback()
+                raise _too_many(
+                    3600,
+                    "The demo's daily audit budget is exhausted. Please try again tomorrow, "
+                    "or add your own Google API key.",
+                )
+        db.commit()
+    if remaining >= 0:
+        response.headers["X-Audit-Free-Remaining"] = str(remaining)
+
+
 @router.get("/health", response_model=HealthResponse, tags=["ops"])
 def health(
     session_factory: Callable[[], DbSession] = Depends(get_db_session_factory),
@@ -379,7 +431,7 @@ def list_checklists() -> list[ChecklistOption]:
     "/audit",
     response_model=AuditResponse,
     tags=["audit"],
-    dependencies=[Depends(guard_ingest)],
+    dependencies=[Depends(guard_audit)],
 )
 async def audit_packet(
     files: list[UploadFile] = File(...),

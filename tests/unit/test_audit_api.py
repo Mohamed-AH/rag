@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 
 import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy.orm import Session
 
 from ragchat.audit.report import Finding, FindingStatus, GapReport, SourcePointer
 from ragchat.service import AuditResult
@@ -40,14 +41,17 @@ class _FakeAuditService:
 
 
 @pytest.fixture
-def audit_client() -> Iterator[tuple[TestClient, _FakeAuditService]]:
+def audit_client(
+    session_factory: Callable[[], Session],
+) -> Iterator[tuple[TestClient, _FakeAuditService]]:
     from ragchat.api.app import create_app
     from ragchat.api.guards import Guards, RateLimiter
-    from ragchat.api.routes import get_audit_service
+    from ragchat.api.routes import get_audit_service, get_db_session_factory
 
     fake = _FakeAuditService()
     app = create_app()
     app.dependency_overrides[get_audit_service] = lambda: fake
+    app.dependency_overrides[get_db_session_factory] = lambda: session_factory
     app.state.guards = Guards(
         ask_limiter=RateLimiter(10_000, 60.0),
         ingest_limiter=RateLimiter(10_000, 3600.0),
@@ -106,3 +110,67 @@ def test_audit_rejects_too_many_files(
         ],
     )
     assert resp.status_code == 413
+
+
+def _audit_app(session_factory: Callable[[], Session], *, allowance: int, budget: int):  # type: ignore[no-untyped-def]
+    """Build an app whose /audit guard uses the given shared-key audit limits."""
+    from ragchat.api.app import create_app
+    from ragchat.api.guards import Guards, RateLimiter
+    from ragchat.api.routes import get_audit_service, get_db_session_factory
+
+    app = create_app()
+    app.dependency_overrides[get_audit_service] = lambda: _FakeAuditService()
+    app.dependency_overrides[get_db_session_factory] = lambda: session_factory
+    app.state.guards = Guards(
+        ask_limiter=RateLimiter(10_000, 60.0),
+        ingest_limiter=RateLimiter(10_000, 3600.0),
+        daily_free_allowance=0,
+        daily_budget=0,
+        hash_salt="test-salt",
+        daily_audit_allowance=allowance,
+        daily_audit_budget=budget,
+    )
+    return app
+
+
+def _one_file() -> list[tuple[str, tuple[str, bytes, str]]]:
+    return [("files", ("a.txt", b"invoice text", "text/plain"))]
+
+
+def test_audit_daily_allowance_is_ip_keyed_not_cookie(
+    session_factory: Callable[[], Session],
+) -> None:
+    """Dropping the session cookie must NOT reset the audit allowance — it is keyed on the
+    client IP, so a fresh session per request cannot evade it."""
+    app = _audit_app(session_factory, allowance=2, budget=0)
+    # Each request from a brand-new client (separate cookie jar) still counts against one IP.
+    assert TestClient(app).post("/audit", files=_one_file()).status_code == 200
+    assert TestClient(app).post("/audit", files=_one_file()).status_code == 200
+    resp = TestClient(app).post("/audit", files=_one_file())
+    assert resp.status_code == 429
+    assert resp.json()["detail"]["byok_required"] is True
+
+
+def test_audit_instance_budget_caps_everyone(
+    session_factory: Callable[[], Session],
+) -> None:
+    app = _audit_app(session_factory, allowance=0, budget=2)
+    client = TestClient(app)
+    assert client.post("/audit", files=_one_file()).status_code == 200
+    assert client.post("/audit", files=_one_file()).status_code == 200
+    resp = client.post("/audit", files=_one_file())
+    assert resp.status_code == 429
+    # The instance budget message is a plain string (not a byok prompt).
+    assert "daily audit budget" in resp.json()["detail"].lower()
+
+
+def test_byo_google_key_bypasses_audit_limits(
+    session_factory: Callable[[], Session],
+) -> None:
+    app = _audit_app(session_factory, allowance=1, budget=0)
+    client = TestClient(app)
+    assert client.post("/audit", files=_one_file()).status_code == 200
+    assert client.post("/audit", files=_one_file()).status_code == 429  # shared-key limit hit
+    # A bring-your-own Google key spends the caller's own quota — no shared-key limit.
+    resp = client.post("/audit", files=_one_file(), headers={"X-Google-Api-Key": "AIza-test"})
+    assert resp.status_code == 200
