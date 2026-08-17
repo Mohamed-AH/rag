@@ -35,9 +35,17 @@ from ragchat.audit.analyzer import Analyzer
 from ragchat.audit.checklist import Checklist
 from ragchat.audit.engine import evaluate
 from ragchat.audit.evidence import ClassifiedDocument, ExtractedField, PacketEvidence
-from ragchat.audit.report import GapReport
+from ragchat.audit.report import Finding, FindingStatus, GapReport, SourcePointer
+from ragchat.audit.review import (
+    Review,
+    ReviewAction,
+    ReviewedFinding,
+    effective_report,
+    normalize_review,
+)
 from ragchat.config import Settings, get_settings
 from ragchat.db import repository
+from ragchat.db.models import PacketFinding
 from ragchat.errors import FileTooLargeError, TooManyFilesError, TooManySectionsError
 from ragchat.ingestion.extractors import extract_sections
 from ragchat.ingestion.parser import Section, parse_markdown_file
@@ -399,6 +407,17 @@ class AuditService:
             repository.create_packet(db, packet_id, self._session_id, self._checklist.id)
             for row in rows:
                 repository.add_packet_document(db, packet_id=packet_id, **row)
+            for position, finding in enumerate(report.findings):
+                repository.add_packet_finding(
+                    db,
+                    packet_id=packet_id,
+                    position=position,
+                    requirement_id=finding.requirement_id,
+                    status=finding.status.value,
+                    summary=finding.summary,
+                    confidence=finding.confidence,
+                    sources=_serialize_sources(finding.sources),
+                )
             db.commit()
             logger.info(
                 "Audited packet %s (%d files) for session %s",
@@ -425,6 +444,13 @@ def _ensure_unique_id(doc: ClassifiedDocument, seen: set[str]) -> ClassifiedDocu
         n += 1
     seen.add(candidate)
     return replace(doc, doc_id=candidate)
+
+
+def _serialize_sources(sources: tuple[SourcePointer, ...]) -> list[Any] | None:
+    """Render a finding's source pointers to a JSON-storable list (or ``None`` when empty)."""
+    if not sources:
+        return None
+    return [{"doc_id": s.doc_id, "page": s.page, "snippet": s.snippet} for s in sources]
 
 
 def _serialize_fields(fields: dict[str, ExtractedField]) -> dict[str, Any] | None:
@@ -479,6 +505,164 @@ def build_audit_service(
         max_files=settings.max_files_per_packet,
         max_upload_bytes=settings.max_upload_bytes,
     )
+
+
+@dataclass(frozen=True, slots=True)
+class AuditSummary:
+    """A past audit as it appears in the history list: id, vertical, when, and effective counts."""
+
+    packet_id: str
+    checklist_id: str
+    created_at: datetime
+    report: GapReport  # effective (post-review) — buckets/counts reflect human decisions
+    reviewed_count: int
+
+
+@dataclass(frozen=True, slots=True)
+class StoredAudit:
+    """A re-opened audit: its persisted findings with any reviewer decisions applied."""
+
+    packet_id: str
+    checklist_id: str
+    created_at: datetime
+    findings: tuple[ReviewedFinding, ...]
+
+    @property
+    def report(self) -> GapReport:
+        """The Gap Report keyed on effective (post-review) status."""
+        return effective_report(self.findings)
+
+
+def _row_to_reviewed_finding(row: PacketFinding) -> ReviewedFinding:
+    """Reconstruct a :class:`ReviewedFinding` from a persisted ``packet_findings`` row."""
+    sources = tuple(
+        SourcePointer(doc_id=s["doc_id"], page=s.get("page"), snippet=s.get("snippet"))
+        for s in (row.sources or [])
+    )
+    finding = Finding(
+        requirement_id=row.requirement_id,
+        status=FindingStatus(row.status),
+        summary=row.summary,
+        confidence=row.confidence,
+        sources=sources,
+    )
+    review: Review | None = None
+    if row.review_action is not None and row.review_status is not None:
+        review = Review(
+            action=ReviewAction(row.review_action),
+            status=FindingStatus(row.review_status),
+            note=row.review_note,
+            reviewed_at=row.reviewed_at,
+        )
+    return ReviewedFinding(finding=finding, review=review)
+
+
+class AuditReviewService:
+    """Read past audits and record reviewer decisions, for a single session.
+
+    Purely relational — no model calls, no keys — so it is cheap to build per request and
+    trivially testable. Every method is scoped to ``session_id``: one tenant can never read
+    or review another's audit, even by guessing a packet id.
+    """
+
+    def __init__(self, *, session_id: str, session_factory: Callable[[], Session]) -> None:
+        self._session_id = session_id
+        self._session_factory = session_factory
+
+    def list_audits(self, limit: int = 25) -> list[AuditSummary]:
+        """Return this session's recent audits (newest first) with effective status counts."""
+        db = self._session_factory()
+        try:
+            packets = repository.recent_packets(db, self._session_id, limit)
+            rows = repository.findings_for_packets(db, [p.id for p in packets])
+            by_packet: dict[str, list[PacketFinding]] = {}
+            for row in rows:
+                by_packet.setdefault(row.packet_id, []).append(row)
+            summaries: list[AuditSummary] = []
+            for packet in packets:
+                reviewed = tuple(_row_to_reviewed_finding(r) for r in by_packet.get(packet.id, []))
+                summaries.append(
+                    AuditSummary(
+                        packet_id=packet.id,
+                        checklist_id=packet.checklist_id,
+                        created_at=packet.created_at,
+                        report=effective_report(reviewed),
+                        reviewed_count=sum(1 for rf in reviewed if rf.is_reviewed),
+                    )
+                )
+            return summaries
+        finally:
+            db.close()
+
+    def get_audit(self, packet_id: str) -> StoredAudit | None:
+        """Return a re-opened audit, or ``None`` if it isn't this session's."""
+        db = self._session_factory()
+        try:
+            packet = repository.get_packet(db, self._session_id, packet_id)
+            if packet is None:
+                return None
+            rows = repository.list_packet_findings(db, self._session_id, packet_id)
+            return StoredAudit(
+                packet_id=packet.id,
+                checklist_id=packet.checklist_id,
+                created_at=packet.created_at,
+                findings=tuple(_row_to_reviewed_finding(r) for r in rows),
+            )
+        finally:
+            db.close()
+
+    def review_finding(
+        self,
+        packet_id: str,
+        requirement_id: str,
+        *,
+        action: ReviewAction,
+        status: FindingStatus | None,
+        note: str | None,
+    ) -> StoredAudit:
+        """Record an accept/override on one finding and return the refreshed stored audit.
+
+        Raises :class:`LookupError` if the finding isn't this session's, and ``ValueError``
+        (from :func:`~ragchat.audit.review.normalize_review`) if the decision is malformed.
+        """
+        db = self._session_factory()
+        try:
+            row = repository.get_packet_finding(db, self._session_id, packet_id, requirement_id)
+            if row is None:
+                raise LookupError(f"no finding {requirement_id!r} in packet {packet_id!r}")
+            review = normalize_review(action, status, FindingStatus(row.status))
+            repository.apply_finding_review(
+                db,
+                row,
+                action=review.action.value,
+                status=review.status.value,
+                note=(note or None),
+                reviewed_at=datetime.now(UTC),
+            )
+            rows = repository.list_packet_findings(db, self._session_id, packet_id)
+            findings = tuple(_row_to_reviewed_finding(r) for r in rows)
+            checklist_id = row.packet.checklist_id
+            created_at = row.packet.created_at
+            db.commit()
+            return StoredAudit(
+                packet_id=packet_id,
+                checklist_id=checklist_id,
+                created_at=created_at,
+                findings=findings,
+            )
+        except Exception:
+            db.rollback()
+            raise
+        finally:
+            db.close()
+
+
+def build_audit_review_service(session_id: str) -> AuditReviewService:
+    """Wire a session-scoped :class:`AuditReviewService` (relational only; no keys needed)."""
+    from ragchat.db.engine import get_session_factory, init_db
+
+    init_db()
+    return AuditReviewService(session_id=session_id, session_factory=get_session_factory())
 
 
 def build_session_service(

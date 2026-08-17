@@ -3,790 +3,692 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>ragchat — ask your documents</title>
+  <meta name="color-scheme" content="light dark" />
+  <title>Packet Auditor</title>
   <style>
+    /* ===== Design tokens (light is the base; dark overrides) ===== */
     :root {
-      --bg: #f6f7f9; --surface: #ffffff; --sidebar: #fbfbfc;
-      --ink: #0b0d12; --muted: #667085; --faint: #98a2b3;
-      --line: #e7e9ee; --line-strong: #d6dae1;
+      --bg: #f5f6f8; --surface: #ffffff; --surface-2: #fbfbfc; --sidebar: #fafbfc;
+      --ink: #0b0d12; --muted: #5b6473; --faint: #8a93a3;
+      --line: #e6e8ee; --line-strong: #d5d9e2;
       --accent: #4f46e5; --accent-ink: #ffffff; --accent-soft: #eef0fe;
-      --ok: #067647; --ok-soft: #e7f6ec; --err: #b42318; --warn-bg: #fff8eb; --warn-ink: #93500b;
-      --chip: #f1f3f7;
-      --radius: 12px; --radius-sm: 9px;
-      --shadow: 0 1px 2px rgba(16,24,40,.05), 0 1px 3px rgba(16,24,40,.08);
-      --shadow-lg: 0 10px 30px rgba(16,24,40,.12);
-      --sidebar-w: 300px;
+      --ok: #067647; --ok-soft: #e7f6ec; --ok-line: #b7e3c6;
+      --err: #b42318; --err-soft: #fef1f0; --err-line: #f4c7c2;
+      --warn: #93500b; --warn-soft: #fff8eb; --warn-line: #f5dfae;
+      --chip: #f0f2f6;
+      --radius: 14px; --radius-sm: 10px; --radius-xs: 8px;
+      --shadow-sm: 0 1px 2px rgba(16,24,40,.05), 0 1px 3px rgba(16,24,40,.06);
+      --shadow: 0 4px 14px rgba(16,24,40,.08);
+      --shadow-lg: 0 16px 40px rgba(16,24,40,.16);
+      --sidebar-w: 288px;
       --font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      --ring: 0 0 0 3px var(--accent-soft);
     }
-    :root:not([data-theme="light"]) {}
     @media (prefers-color-scheme: dark) {
       :root:not([data-theme="light"]) {
-        --bg: #0c0d10; --surface: #141619; --sidebar: #0f1114;
-        --ink: #e8eaed; --muted: #9aa3b2; --faint: #6b7280;
-        --line: #23262d; --line-strong: #2d313a;
-        --accent: #6366f1; --accent-ink: #0b0d11; --accent-soft: #1b1e3a;
-        --ok: #4ade80; --ok-soft: #12331f; --err: #f87171; --warn-bg: #2a2213; --warn-ink: #f5c451;
-        --chip: #1b1e24;
-        --shadow: 0 1px 2px rgba(0,0,0,.3); --shadow-lg: 0 12px 34px rgba(0,0,0,.5);
+        --bg: #0b0c0f; --surface: #15171c; --surface-2: #101216; --sidebar: #0e1013;
+        --ink: #e9ebee; --muted: #9aa3b2; --faint: #6b7280;
+        --line: #23262e; --line-strong: #2e323c;
+        --accent: #7c7ff2; --accent-ink: #0b0d11; --accent-soft: #20213f;
+        --ok: #4ade80; --ok-soft: #10321e; --ok-line: #1f5a37;
+        --err: #f87171; --err-soft: #351a18; --err-line: #6b2b26;
+        --warn: #f5c451; --warn-soft: #2c2413; --warn-line: #5a481f;
+        --chip: #1b1e25;
+        --shadow-sm: 0 1px 2px rgba(0,0,0,.4);
+        --shadow: 0 6px 20px rgba(0,0,0,.5);
+        --shadow-lg: 0 18px 44px rgba(0,0,0,.6);
       }
     }
     :root[data-theme="dark"] {
-      --bg: #0c0d10; --surface: #141619; --sidebar: #0f1114;
-      --ink: #e8eaed; --muted: #9aa3b2; --faint: #6b7280;
-      --line: #23262d; --line-strong: #2d313a;
-      --accent: #6366f1; --accent-ink: #0b0d11; --accent-soft: #1b1e3a;
-      --ok: #4ade80; --ok-soft: #12331f; --err: #f87171; --warn-bg: #2a2213; --warn-ink: #f5c451;
-      --chip: #1b1e24;
-      --shadow: 0 1px 2px rgba(0,0,0,.3); --shadow-lg: 0 12px 34px rgba(0,0,0,.5);
+      --bg: #0b0c0f; --surface: #15171c; --surface-2: #101216; --sidebar: #0e1013;
+      --ink: #e9ebee; --muted: #9aa3b2; --faint: #6b7280;
+      --line: #23262e; --line-strong: #2e323c;
+      --accent: #7c7ff2; --accent-ink: #0b0d11; --accent-soft: #20213f;
+      --ok: #4ade80; --ok-soft: #10321e; --ok-line: #1f5a37;
+      --err: #f87171; --err-soft: #351a18; --err-line: #6b2b26;
+      --warn: #f5c451; --warn-soft: #2c2413; --warn-line: #5a481f;
+      --chip: #1b1e25;
+      --shadow-sm: 0 1px 2px rgba(0,0,0,.4);
+      --shadow: 0 6px 20px rgba(0,0,0,.5);
+      --shadow-lg: 0 18px 44px rgba(0,0,0,.6);
     }
 
     * { box-sizing: border-box; }
     html, body { height: 100%; }
     body {
       margin: 0; background: var(--bg); color: var(--ink);
-      font-family: var(--font); font-size: 15px; line-height: 1.55;
-      -webkit-font-smoothing: antialiased;
+      font-family: var(--font); font-size: 15px; line-height: 1.5;
+      -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility;
     }
-    button { font-family: inherit; cursor: pointer; }
-    a { color: var(--accent); }
+    * { -webkit-tap-highlight-color: transparent; }
+    button, input, select, textarea { font-family: inherit; }
+    a { color: var(--accent); text-underline-offset: 2px; }
+    :focus-visible { outline: none; box-shadow: var(--ring); border-radius: 6px; }
+    .visually-hidden { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+      overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+    .skip-link { position: fixed; left: 12px; top: -60px; z-index: 100; background: var(--accent);
+      color: var(--accent-ink); padding: 10px 14px; border-radius: 8px; transition: top .15s; }
+    .skip-link:focus { top: 12px; }
 
-    /* ---- App shell ---- */
+    /* ===== App shell ===== */
     .app { display: grid; grid-template-columns: var(--sidebar-w) 1fr; height: 100dvh; }
 
-    /* ---- Sidebar ---- */
-    .sidebar {
-      background: var(--sidebar); border-right: 1px solid var(--line);
-      display: flex; flex-direction: column; min-height: 0; overflow-y: auto;
-    }
-    .brand { display: flex; align-items: center; gap: 9px; padding: 18px 18px 12px; }
-    .brand .dot { width: 22px; height: 22px; border-radius: 7px; background: var(--accent);
-      display: grid; place-items: center; color: var(--accent-ink); font-weight: 800; font-size: 13px; }
-    .brand h1 { font-size: 16px; margin: 0; letter-spacing: -.01em; }
-    .side-section { padding: 12px 16px; border-top: 1px solid var(--line); }
-    .side-section:first-of-type { border-top: 0; }
-    .side-label { font-size: 11px; font-weight: 700; letter-spacing: .07em; text-transform: uppercase;
-      color: var(--faint); margin: 2px 2px 10px; display: flex; align-items: center; justify-content: space-between; }
+    .sidebar { background: var(--sidebar); border-right: 1px solid var(--line);
+      display: flex; flex-direction: column; min-height: 0; }
+    .brand { display: flex; align-items: center; gap: 10px; padding: 18px 18px 14px; }
+    .brand .mark { width: 30px; height: 30px; border-radius: 9px; flex: none;
+      background: linear-gradient(135deg, var(--accent), color-mix(in srgb, var(--accent) 60%, #22d3ee));
+      display: grid; place-items: center; color: #fff; }
+    .brand h1 { font-size: 15.5px; margin: 0; letter-spacing: -.01em; }
+    .brand p { margin: 1px 0 0; font-size: 11.5px; color: var(--faint); }
 
-    .uploader { display: flex; flex-direction: column; gap: 8px; }
-    .file-drop {
-      border: 1px dashed var(--line-strong); border-radius: var(--radius-sm); padding: 14px;
-      text-align: center; color: var(--muted); font-size: 13px; background: var(--surface);
-      transition: border-color .15s, background .15s;
-    }
-    .file-drop:hover { border-color: var(--accent); }
-    .file-drop strong { color: var(--ink); }
-    .file-name { font-size: 12.5px; color: var(--ink); word-break: break-all; margin-top: 4px; }
-    input[type=file] { display: none; }
+    .side-scroll { flex: 1; overflow-y: auto; padding: 6px 12px 12px; display: flex; flex-direction: column; gap: 8px; }
+    .side-label { font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase;
+      color: var(--faint); margin: 12px 6px 6px; }
+    .side-foot { border-top: 1px solid var(--line); padding: 12px; display: flex; flex-direction: column; gap: 10px; }
+    .side-credit { font-size: 11px; color: var(--faint); padding: 0 4px; }
 
-    .sources-list { display: flex; flex-direction: column; gap: 8px; }
-    .source-item { display: flex; gap: 9px; align-items: flex-start; padding: 10px;
-      background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-sm); }
-    .source-item svg { flex: none; margin-top: 1px; color: var(--accent); }
-    .source-item .meta { min-width: 0; }
-    .source-item .fn { font-size: 13px; font-weight: 600; word-break: break-all; }
-    .source-item .sub { font-size: 12px; color: var(--muted); }
-    .empty-note { font-size: 12.5px; color: var(--faint); padding: 2px; }
+    /* runs list */
+    .runs { display: flex; flex-direction: column; gap: 6px; }
+    .run { display: flex; align-items: center; gap: 9px; padding: 9px 10px; border: 1px solid var(--line);
+      border-radius: var(--radius-sm); background: var(--surface); cursor: pointer; text-align: left; width: 100%; color: inherit; }
+    .run:hover { border-color: var(--accent); }
+    .run[aria-current="true"] { border-color: var(--accent); box-shadow: var(--ring); }
+    .run .files { flex: 1; min-width: 0; font-size: 12.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .run .when { font-size: 11px; color: var(--faint); flex: none; }
+    .empty-hint { font-size: 12.5px; color: var(--faint); padding: 6px; }
 
-    /* keys / settings */
-    .pill { display: inline-flex; align-items: center; gap: 5px; font-size: 11px; font-weight: 600;
-      padding: 3px 9px; border-radius: 999px; background: var(--chip); color: var(--muted); }
-    .pill.own { background: var(--ok-soft); color: var(--ok); }
-    .pill .d { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
-    .keys-form { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; }
-    .field label { font-size: 12px; color: var(--muted); display: block; margin-bottom: 4px; }
-    input[type=password], input[type=text] {
-      width: 100%; padding: 9px 11px; border: 1px solid var(--line-strong); border-radius: var(--radius-sm);
-      background: var(--surface); color: var(--ink); font: inherit; font-size: 13px;
-    }
-    input:focus, textarea:focus { outline: 2px solid var(--accent-soft); outline-offset: 0; border-color: var(--accent); }
-    .side-actions { display: flex; gap: 8px; margin-top: 4px; }
-    .keys-help { font-size: 11.5px; color: var(--faint); margin-top: 8px; line-height: 1.5; }
-    .sidebar-foot { margin-top: auto; padding: 14px 18px; border-top: 1px solid var(--line);
-      font-size: 11.5px; color: var(--faint); }
-
-    /* ---- Buttons ---- */
-    .btn { display: inline-flex; align-items: center; justify-content: center; gap: 7px;
-      border: 1px solid transparent; border-radius: var(--radius-sm); font-weight: 600; font-size: 13.5px;
-      padding: 9px 14px; transition: opacity .15s, transform .04s, background .15s; }
+    /* ===== Buttons ===== */
+    .btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; cursor: pointer;
+      border: 1px solid transparent; border-radius: var(--radius-sm); font-weight: 600; font-size: 14px;
+      padding: 10px 15px; transition: background .14s, opacity .14s, transform .04s, border-color .14s; }
     .btn:active { transform: translateY(1px); }
-    .btn[disabled] { opacity: .5; cursor: not-allowed; }
+    .btn:disabled { opacity: .5; cursor: not-allowed; }
     .btn-primary { background: var(--accent); color: var(--accent-ink); }
-    .btn-primary:hover:not([disabled]) { opacity: .92; }
+    .btn-primary:hover:not(:disabled) { opacity: .92; }
     .btn-ghost { background: var(--surface); color: var(--ink); border-color: var(--line-strong); }
     .btn-ghost:hover { background: var(--chip); }
     .btn-block { width: 100%; }
+    .btn-sm { padding: 7px 11px; font-size: 12.5px; border-radius: var(--radius-xs); }
+    .icon-btn { display: inline-grid; place-items: center; width: 38px; height: 38px; flex: none;
+      background: var(--surface); border: 1px solid var(--line-strong); border-radius: 10px; color: var(--muted); cursor: pointer; }
+    .icon-btn:hover { background: var(--chip); color: var(--ink); }
 
-    /* ---- Main ---- */
+    /* ===== Main ===== */
     .main { display: flex; flex-direction: column; min-width: 0; height: 100dvh; }
-    .topbar { display: flex; align-items: center; gap: 12px; padding: 12px 20px; border-bottom: 1px solid var(--line);
-      background: color-mix(in srgb, var(--surface) 80%, transparent); backdrop-filter: blur(6px); position: sticky; top: 0; z-index: 5; }
-    .topbar h2 { font-size: 14px; margin: 0; font-weight: 600; }
-    .topbar .sub { font-size: 12.5px; color: var(--muted); }
-    .hamburger { display: none; background: transparent; border: 1px solid var(--line-strong);
-      border-radius: 8px; padding: 6px 8px; color: var(--ink); }
-    .icon-btn { margin-left: auto; background: transparent; border: 1px solid var(--line-strong);
-      border-radius: 8px; padding: 6px 9px; color: var(--muted); font-size: 12px; }
+    .topbar { display: flex; align-items: center; gap: 12px; padding: 12px 22px; border-bottom: 1px solid var(--line);
+      background: color-mix(in srgb, var(--surface) 82%, transparent); backdrop-filter: blur(8px);
+      position: sticky; top: 0; z-index: 6; }
+    .topbar .titles { min-width: 0; }
+    .topbar h2 { font-size: 15px; margin: 0; font-weight: 650; letter-spacing: -.01em; }
+    .topbar .sub { font-size: 12.5px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .topbar .grow { flex: 1; }
+    .hamburger { display: none; }
 
-    .thread { flex: 1; overflow-y: auto; padding: 24px 20px 12px; }
-    .thread-inner { max-width: 760px; margin: 0 auto; display: flex; flex-direction: column; gap: 26px; }
-    .empty-state { text-align: center; color: var(--muted); margin: 8vh auto 0; max-width: 440px; }
-    .empty-state .big { width: 46px; height: 46px; border-radius: 13px; background: var(--accent-soft);
-      color: var(--accent); display: grid; place-items: center; margin: 0 auto 14px; }
-    .empty-state h3 { color: var(--ink); margin: 0 0 6px; font-size: 18px; }
-    .empty-state p { margin: 0; font-size: 14px; }
+    .content { flex: 1; overflow-y: auto; padding: 26px 22px 40px; }
+    .wrap { max-width: 780px; margin: 0 auto; }
 
-    .turn { display: flex; flex-direction: column; gap: 12px; }
-    .q { align-self: flex-end; max-width: 90%; background: var(--accent); color: var(--accent-ink);
-      padding: 10px 14px; border-radius: 14px 14px 4px 14px; font-size: 14.5px; }
-    .a { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 16px 18px; box-shadow: var(--shadow); }
-    .a .answer-text { white-space: pre-wrap; font-size: 15px; }
-    .a .srcs { margin-top: 14px; padding-top: 12px; border-top: 1px dashed var(--line); }
-    .a .srcs-label { font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--faint); margin-bottom: 8px; }
-    .chips { display: flex; flex-wrap: wrap; gap: 7px; }
-    .chip { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--ink);
-      background: var(--chip); border: 1px solid var(--line); border-radius: 999px; padding: 5px 11px 5px 8px; cursor: pointer; }
-    .chip:hover { border-color: var(--accent); }
-    .chip .n { display: inline-grid; place-items: center; width: 17px; height: 17px; border-radius: 50%;
-      background: var(--accent); color: var(--accent-ink); font-size: 10.5px; font-weight: 700; }
-    .src-card { margin-top: 8px; border: 1px solid var(--line); border-radius: var(--radius-sm); overflow: hidden; }
-    .src-card summary { cursor: pointer; list-style: none; padding: 9px 12px; font-size: 13px; font-weight: 600;
-      display: flex; gap: 8px; align-items: center; }
-    .src-card summary::-webkit-details-marker { display: none; }
-    .src-card summary .n { display: inline-grid; place-items: center; width: 18px; height: 18px; border-radius: 50%;
-      background: var(--accent-soft); color: var(--accent); font-size: 11px; font-weight: 700; flex: none; }
-    .src-card .body { padding: 0 12px 12px 38px; color: var(--muted); font-size: 13px; white-space: pre-wrap; }
+    .card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius);
+      box-shadow: var(--shadow-sm); padding: 18px; }
+    .field-label { display: block; font-size: 12px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase;
+      color: var(--faint); margin-bottom: 7px; }
+    select, input[type=password], input[type=text] { width: 100%; padding: 10px 12px; font-size: 14px;
+      border: 1px solid var(--line-strong); border-radius: var(--radius-sm); background: var(--surface); color: var(--ink); }
+    select { font-weight: 600; }
 
-    /* skeleton */
-    .skeleton .line { height: 12px; border-radius: 6px; margin: 9px 0;
-      background: linear-gradient(90deg, var(--chip) 25%, var(--line) 37%, var(--chip) 63%);
-      background-size: 400% 100%; animation: shimmer 1.3s ease infinite; }
-    @keyframes shimmer { 0% { background-position: 100% 0; } 100% { background-position: 0 0; } }
+    /* dropzone */
+    .drop { margin-top: 14px; border: 1.5px dashed var(--line-strong); border-radius: var(--radius);
+      background: var(--surface-2); padding: 30px 20px; text-align: center; cursor: pointer;
+      transition: border-color .15s, background .15s; display: block; }
+    .drop:hover, .drop:focus-visible { border-color: var(--accent); }
+    .drop.drag { border-color: var(--accent); background: var(--accent-soft); }
+    .drop .di { width: 42px; height: 42px; border-radius: 12px; background: var(--accent-soft); color: var(--accent);
+      display: grid; place-items: center; margin: 0 auto 10px; }
+    .drop strong { color: var(--ink); }
+    .drop .hint { font-size: 12.5px; color: var(--muted); margin-top: 4px; }
+    input[type=file] { display: none; }
 
-    /* composer */
-    .composer { border-top: 1px solid var(--line); background: var(--surface); padding: 14px 20px; }
-    .composer-inner { max-width: 760px; margin: 0 auto; }
-    .composer .box { display: flex; gap: 10px; align-items: flex-end;
-      border: 1px solid var(--line-strong); border-radius: 14px; padding: 8px 8px 8px 14px; background: var(--surface); }
-    .composer .box:focus-within { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
-    .composer textarea { flex: 1; border: 0; resize: none; background: transparent; color: var(--ink);
-      font: inherit; font-size: 15px; max-height: 160px; padding: 6px 0; }
-    .composer textarea:focus { outline: none; }
-    .composer .hint { color: var(--faint); font-size: 12px; margin-top: 8px; display: flex; justify-content: space-between; gap: 10px; }
-    .send { width: 38px; height: 38px; border-radius: 10px; flex: none; padding: 0; }
+    .files-list { display: flex; flex-direction: column; gap: 6px; margin-top: 12px; }
+    .file-chip { display: flex; align-items: center; gap: 10px; padding: 8px 10px; background: var(--chip);
+      border: 1px solid var(--line); border-radius: var(--radius-xs); font-size: 13px; }
+    .file-chip .fn { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .file-chip .rm { background: none; border: 0; color: var(--faint); cursor: pointer; padding: 2px 4px; border-radius: 6px; }
+    .file-chip .rm:hover { color: var(--err); background: var(--err-soft); }
 
-    .toast { position: fixed; left: 50%; transform: translateX(-50%); bottom: 20px; z-index: 30;
-      background: var(--ink); color: var(--surface); padding: 10px 16px; border-radius: 10px; font-size: 13.5px;
+    .status { font-size: 13px; margin-top: 12px; min-height: 18px; color: var(--muted); }
+    .status.err { color: var(--err); } .status.ok { color: var(--ok); }
+    .spinner { display: inline-block; width: 14px; height: 14px; border: 2px solid currentColor; border-right-color: transparent;
+      border-radius: 50%; animation: spin .7s linear infinite; vertical-align: -2px; margin-right: 7px; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* ===== Report ===== */
+    .result { margin-top: 22px; }
+    .verdict { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 4px; }
+    .verdict .tag { font-size: 12px; font-weight: 800; letter-spacing: .03em; padding: 4px 11px; border-radius: 999px; }
+    .tag.clear { background: var(--ok-soft); color: var(--ok); border: 1px solid var(--ok-line); }
+    .tag.gaps { background: var(--warn-soft); color: var(--warn); border: 1px solid var(--warn-line); }
+    .verdict .meta { color: var(--muted); font-size: 13px; }
+    .verdict .actions { margin-left: auto; display: flex; gap: 7px; flex-wrap: wrap; }
+
+    .bucket { margin-top: 20px; }
+    .bucket h3 { font-size: 12px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; color: var(--muted);
+      margin: 0 0 9px; display: flex; align-items: center; gap: 8px; }
+    .dot { width: 9px; height: 9px; border-radius: 50%; flex: none; }
+    .finding { border: 1px solid var(--line); border-left-width: 3px; border-radius: var(--radius-sm); background: var(--surface);
+      margin-bottom: 8px; overflow: hidden; }
+    .finding > summary { list-style: none; cursor: pointer; padding: 12px 14px; display: flex; gap: 11px; align-items: flex-start; }
+    .finding > summary::-webkit-details-marker { display: none; }
+    .finding .txt { flex: 1; font-size: 14px; }
+    .finding .conf { font-size: 11.5px; color: var(--faint); flex: none; padding-top: 1px; font-variant-numeric: tabular-nums; }
+    .finding .src { padding: 0 14px 12px 14px; font-size: 12.5px; color: var(--muted); }
+    .finding .src .cite { display: block; }
+    .finding .src .snip { background: var(--chip); border-radius: 6px; padding: 7px 9px; margin: 4px 0 8px; white-space: pre-wrap; }
+    .b-missing .dot, .b-missing .finding { border-color: var(--err-line); }
+    .b-missing .dot { background: var(--err); }
+    .b-deficient .dot { background: var(--err); } .b-deficient .finding { border-left-color: var(--err); }
+    .b-review .dot { background: var(--warn); } .b-review .finding { border-left-color: var(--warn); }
+    .b-present .dot { background: var(--ok); } .b-present .finding { border-left-color: var(--ok); }
+
+    /* review overlay on a finding */
+    .finding .review { border-top: 1px dashed var(--line); padding: 10px 14px; display: flex; flex-wrap: wrap;
+      align-items: center; gap: 8px; font-size: 12.5px; }
+    .rev-badge { display: inline-flex; align-items: center; gap: 6px; font-weight: 700; font-size: 11px;
+      letter-spacing: .02em; padding: 3px 9px; border-radius: 999px; background: var(--chip); color: var(--muted); }
+    .rev-badge.accepted { background: var(--ok-soft); color: var(--ok); }
+    .rev-badge.overridden { background: var(--accent-soft); color: var(--accent); }
+    .rev-note { flex-basis: 100%; color: var(--muted); font-style: italic; }
+    .rev-machine { color: var(--faint); }
+    .rev-actions { display: flex; gap: 7px; flex-wrap: wrap; margin-left: auto; }
+    .rev-form { flex-basis: 100%; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 4px; }
+    .rev-form select, .rev-form input { font: inherit; font-size: 12.5px; padding: 6px 9px; border-radius: var(--radius-xs);
+      border: 1px solid var(--line-strong); background: var(--surface-2); color: var(--ink); }
+    .rev-form input { flex: 1; min-width: 140px; }
+    .reviewed-mark { flex: none; color: var(--accent); font-size: 12px; }
+
+    /* empty state */
+    .empty { text-align: center; color: var(--muted); padding: 30px 10px; }
+
+    /* banner + toast */
+    .banner { display: none; margin: 0 0 16px; background: var(--warn-soft); color: var(--warn);
+      border: 1px solid var(--warn-line); padding: 10px 14px; border-radius: var(--radius-sm); font-size: 13px; }
+    .toast { position: fixed; left: 50%; bottom: 22px; transform: translateX(-50%) translateY(8px); z-index: 40;
+      background: var(--ink); color: var(--surface); padding: 11px 16px; border-radius: 10px; font-size: 13.5px;
       box-shadow: var(--shadow-lg); opacity: 0; pointer-events: none; transition: opacity .2s, transform .2s; }
-    .toast.show { opacity: 1; transform: translateX(-50%) translateY(-2px); }
+    .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
     .toast.err { background: var(--err); color: #fff; }
 
-    .status { font-size: 12.5px; margin-top: 8px; min-height: 16px; }
-    .status.ok { color: var(--ok); } .status.err { color: var(--err); }
-    .spinner { display: inline-block; width: 13px; height: 13px; border: 2px solid currentColor;
-      border-right-color: transparent; border-radius: 50%; animation: spin .7s linear infinite; vertical-align: -2px; margin-right: 6px; }
-    @keyframes spin { to { transform: rotate(360deg); } }
-    .banner { display: none; margin: 12px 20px 0; background: var(--warn-bg); color: var(--warn-ink);
-      border: 1px solid color-mix(in srgb, var(--warn-ink) 30%, transparent); padding: 9px 13px; border-radius: 10px; font-size: 13px; }
+    details.keys > summary { list-style: none; }
+    details.keys > summary::-webkit-details-marker { display: none; }
+    .keys-body { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; }
+    .keys-help { font-size: 11.5px; color: var(--faint); line-height: 1.5; }
+    .pill { display: inline-flex; align-items: center; gap: 6px; font-size: 11px; font-weight: 600; padding: 3px 9px;
+      border-radius: 999px; background: var(--chip); color: var(--muted); }
+    .pill.own { background: var(--ok-soft); color: var(--ok); }
+    .pill .d { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
 
-    /* ---- Mode switch + audit view ---- */
-    .seg { display: inline-flex; border: 1px solid var(--line-strong); border-radius: 9px; overflow: hidden; margin-left: auto; }
-    .seg button { background: var(--surface); color: var(--muted); border: 0; padding: 6px 13px; font-size: 13px; font-weight: 600; }
-    .seg button.active { background: var(--accent); color: var(--accent-ink); }
-    .main[data-mode="audit"] #thread, .main[data-mode="audit"] .composer { display: none; }
-    .main:not([data-mode="audit"]) #auditView { display: none; }
-    #auditView { flex: 1; overflow-y: auto; padding: 24px 20px; }
-    .audit-inner { max-width: 820px; margin: 0 auto; }
-    .vertical-row { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; }
-    .vertical-row label { font-size: 12px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; color: var(--faint); }
-    .vertical-row select { flex: 1; padding: 9px 11px; border: 1px solid var(--line-strong); border-radius: var(--radius-sm);
-      background: var(--surface); color: var(--ink); font: inherit; font-size: 13.5px; font-weight: 600; }
-    .vertical-row select:focus { outline: 2px solid var(--accent-soft); border-color: var(--accent); }
-    .audit-drop { border: 1px dashed var(--line-strong); border-radius: var(--radius); padding: 22px; text-align: center;
-      color: var(--muted); background: var(--surface); display: block; }
-    .audit-drop:hover { border-color: var(--accent); }
-    .audit-drop strong { color: var(--ink); }
-    .audit-files { display: flex; flex-direction: column; gap: 6px; margin: 12px 0; }
-    .audit-file { font-size: 13px; color: var(--ink); background: var(--chip); border: 1px solid var(--line);
-      border-radius: 8px; padding: 6px 10px; word-break: break-all; }
-    .verdict { display: flex; align-items: center; gap: 10px; font-size: 17px; font-weight: 700; margin: 22px 0 4px; }
-    .verdict .tag { font-size: 12px; font-weight: 700; padding: 3px 10px; border-radius: 999px; }
-    .tag.clear { background: var(--ok-soft); color: var(--ok); }
-    .tag.gaps { background: var(--warn-bg); color: var(--warn-ink); }
-    .bucket { margin-top: 18px; }
-    .bucket h4 { font-size: 11px; letter-spacing: .06em; text-transform: uppercase; margin: 0 0 8px;
-      display: flex; gap: 8px; align-items: center; color: var(--muted); }
-    .dotc { width: 9px; height: 9px; border-radius: 50%; flex: none; }
-    .finding { border: 1px solid var(--line); border-radius: var(--radius-sm); margin-bottom: 8px; overflow: hidden; background: var(--surface); }
-    .finding summary { list-style: none; cursor: pointer; padding: 10px 12px; display: flex; gap: 10px; align-items: flex-start; font-size: 14px; }
-    .finding summary::-webkit-details-marker { display: none; }
-    .finding[data-nosrc] summary { cursor: default; }
-    .finding .conf { margin-left: auto; font-size: 11.5px; color: var(--faint); flex: none; padding-left: 8px; }
-    .finding .src { padding: 0 12px 12px 12px; font-size: 12.5px; color: var(--muted); }
-    .finding .src .snip { background: var(--chip); border-radius: 6px; padding: 6px 8px; margin-top: 4px; white-space: pre-wrap; }
-
-    /* result header + run history */
-    .result-head { display: flex; align-items: center; gap: 12px; margin: 22px 0 2px; flex-wrap: wrap; }
-    .result-head .meta { color: var(--muted); font-size: 12.5px; }
-    .result-head .spacer { margin-left: auto; }
-    .btn-sm { padding: 6px 11px; font-size: 12.5px; }
-    .runs { margin-top: 28px; border-top: 1px solid var(--line); padding-top: 14px; }
-    .runs h4 { font-size: 11px; letter-spacing: .06em; text-transform: uppercase; color: var(--faint); margin: 0 0 10px; }
-    .run { display: flex; align-items: center; gap: 10px; padding: 9px 11px; border: 1px solid var(--line);
-      border-radius: var(--radius-sm); background: var(--surface); margin-bottom: 7px; cursor: pointer; text-align: left; width: 100%; }
-    .run:hover { border-color: var(--accent); }
-    .run.active { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-soft); }
-    .run .tag { font-size: 10.5px; font-weight: 700; padding: 2px 8px; border-radius: 999px; flex: none; }
-    .run .files { font-size: 13px; color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
-    .run .when { margin-left: auto; font-size: 12px; color: var(--faint); flex: none; }
-    .run .count { font-size: 12px; color: var(--muted); flex: none; }
-
-    /* ---- Print: report only, for Save-as-PDF ---- */
-    @media print {
-      .sidebar, .topbar, .composer, #auditRuns, .vertical-row, .audit-drop, #auditFiles,
-      #auditFileList, #auditBtn, #auditStatus, .no-print, .scrim, .hamburger { display: none !important; }
-      .app { display: block; height: auto; }
-      .main, #auditView { height: auto; overflow: visible; }
-      body, .main, #auditView { background: #fff; }
-      .finding, .bucket { break-inside: avoid; }
-    }
-
+    /* ===== Responsive ===== */
     .scrim { display: none; }
-    /* ---- Responsive ---- */
-    @media (max-width: 860px) {
+    @media (max-width: 880px) {
       .app { grid-template-columns: 1fr; }
       .sidebar { position: fixed; z-index: 20; width: min(86vw, 320px); height: 100dvh; left: 0; top: 0;
         transform: translateX(-100%); transition: transform .22s ease; box-shadow: var(--shadow-lg); }
       .app.nav-open .sidebar { transform: translateX(0); }
-      .hamburger { display: inline-flex; }
-      .scrim { display: block; position: fixed; inset: 0; background: rgba(4,6,12,.4); z-index: 15; opacity: 0;
+      .hamburger { display: inline-grid; }
+      .scrim { display: block; position: fixed; inset: 0; background: rgba(4,6,12,.45); z-index: 15; opacity: 0;
         pointer-events: none; transition: opacity .2s; }
       .app.nav-open .scrim { opacity: 1; pointer-events: auto; }
+      .content { padding: 20px 16px 36px; }
+      .topbar { padding: 12px 16px; }
+    }
+    @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
+
+    /* ===== Print (report only) ===== */
+    @media print {
+      .sidebar, .topbar, .scrim, #uploadCard, .no-print, .toast, .banner { display: none !important; }
+      .app { display: block; height: auto; }
+      .main, .content { height: auto; overflow: visible; }
+      body, .main, .content { background: #fff; }
+      .finding, .bucket { break-inside: avoid; }
+      .result { margin-top: 0; }
     }
   </style>
 </head>
 <body>
+  <a class="skip-link" href="#main">Skip to content</a>
   <div class="app" id="app">
-    <div class="scrim" id="scrim"></div>
+    <div class="scrim" id="scrim" aria-hidden="true"></div>
 
     <!-- Sidebar -->
-    <aside class="sidebar" id="sidebar">
-      <div class="brand"><span class="dot">R</span><h1>ragchat</h1></div>
-
-      <div class="side-section">
-        <div class="side-label">Sources</div>
-        <div class="uploader">
-          <label class="file-drop" for="file">
-            <div><strong>Choose a file</strong> to upload</div>
-            <div class="file-name" id="fileName">.md · .txt · .pdf · .docx</div>
-          </label>
-          <input id="file" type="file" accept=".md,.markdown,.txt,.text,.pdf,.docx" />
-          <button class="btn btn-primary btn-block" id="ingestBtn">Ingest document</button>
-          <div id="ingestStatus" class="status"></div>
-        </div>
-        <div class="sources-list" id="sourcesList" style="margin-top:10px;">
-          <div class="empty-note" id="sourcesEmpty">No sources yet. Upload one to begin.</div>
+    <aside class="sidebar" id="sidebar" aria-label="Audits and settings">
+      <div class="brand">
+        <span class="mark" aria-hidden="true">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="m9 15 2 2 4-4"/></svg>
+        </span>
+        <div>
+          <h1>Packet Auditor</h1>
+          <p>Check documents against a checklist</p>
         </div>
       </div>
 
-      <div class="side-section">
-        <div class="side-label">
-          <span>Model keys</span>
-          <span class="pill" id="modePill"><span class="d"></span><span id="modeText">shared demo keys</span></span>
+      <div class="side-scroll">
+        <button class="btn btn-primary btn-block" id="newAuditBtn">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+          New audit
+        </button>
+
+        <div class="side-label">Recent audits</div>
+        <div class="runs" id="runsList" role="list">
+          <div class="empty-hint" id="runsEmpty">No audits yet.</div>
         </div>
-        <details id="keysDetails">
-          <summary class="btn btn-ghost btn-block" style="justify-content:space-between;">Use your own keys <span aria-hidden="true">＋</span></summary>
-          <div class="keys-form">
-            <div class="field"><label for="cohereKey">Cohere API key</label>
-              <input id="cohereKey" type="password" autocomplete="off" placeholder="co-…" /></div>
-            <div class="field"><label for="googleKey">Google Gemini API key</label>
-              <input id="googleKey" type="password" autocomplete="off" placeholder="AIza…" /></div>
-            <div class="side-actions">
-              <button class="btn btn-primary" id="saveKeys">Use my keys</button>
-              <button class="btn btn-ghost" id="clearKeys">Clear</button>
+      </div>
+
+      <div class="side-foot">
+        <details class="keys" id="keysDetails">
+          <summary class="btn btn-ghost btn-block btn-sm" style="justify-content:space-between;">
+            <span id="keyMode" class="pill"><span class="d"></span>shared demo key</span>
+            <span aria-hidden="true">Keys ＋</span>
+          </summary>
+          <div class="keys-body">
+            <label class="visually-hidden" for="googleKey">Google Gemini API key</label>
+            <input id="googleKey" type="password" autocomplete="off" placeholder="Google Gemini API key (AIza…)" />
+            <div style="display:flex; gap:8px;">
+              <button class="btn btn-primary btn-sm" id="saveKey" style="flex:1;">Use my key</button>
+              <button class="btn btn-ghost btn-sm" id="clearKey">Clear</button>
             </div>
-            <div id="keysStatus" class="status"></div>
-            <div class="keys-help">
-              Sent only with your requests, <strong>never stored on the server</strong>. Keys from
-              <a href="https://dashboard.cohere.com/api-keys" target="_blank" rel="noopener">Cohere</a> ·
-              <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">Google AI Studio</a>.
-            </div>
+            <div class="keys-help">Used only for your requests and <strong>never stored on the server</strong>. Get one from
+              <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">Google AI Studio</a>.</div>
           </div>
         </details>
-      </div>
-
-      <div class="sidebar-foot">
-        FastAPI · pgvector · LangChain · Cohere · Gemini · <a href="/docs">API</a>
+        <div class="side-credit">FastAPI · Gemini · <a href="/docs">API</a></div>
       </div>
     </aside>
 
     <!-- Main -->
-    <main class="main" id="mainEl" data-mode="ask">
-      <div class="topbar">
-        <button class="hamburger" id="hamburger" aria-label="Toggle sidebar">☰</button>
-        <div>
-          <h2 id="topTitle">Ask your documents</h2>
-          <div class="sub" id="topSub">Answers grounded in your uploaded content — with sources.</div>
+    <main class="main" id="main">
+      <header class="topbar">
+        <button class="icon-btn hamburger" id="hamburger" aria-label="Open menu" aria-controls="sidebar" aria-expanded="false">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M3 6h18M3 12h18M3 18h18"/></svg>
+        </button>
+        <div class="titles">
+          <h2>Audit a packet</h2>
+          <div class="sub" id="verticalSub">Select an audit type and upload the documents.</div>
         </div>
-        <div class="seg" role="tablist">
-          <button id="modeAsk" class="active">Ask</button>
-          <button id="modeAudit">Audit</button>
-        </div>
-        <button class="icon-btn" id="themeBtn" title="Toggle theme" style="margin-left:12px;">◐ Theme</button>
-      </div>
+        <div class="grow"></div>
+        <button class="icon-btn" id="themeBtn" aria-label="Toggle dark mode" aria-pressed="false" title="Toggle theme">
+          <svg id="themeIcon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M6.3 17.7l-1.4 1.4M19.1 4.9l-1.4 1.4"/></svg>
+        </button>
+      </header>
 
-      <div id="banner" class="banner"></div>
+      <div class="content" id="mainContent">
+        <div class="wrap">
+          <div class="banner" id="banner" role="status"></div>
 
-      <div class="thread" id="thread">
-        <div class="thread-inner" id="threadInner">
-          <div class="empty-state" id="emptyState">
-            <div class="big">
-              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M9 15h6M9 11h2"/></svg>
+          <section class="card" id="uploadCard" aria-labelledby="uploadHeading">
+            <h2 id="uploadHeading" class="visually-hidden">Run an audit</h2>
+            <label class="field-label" for="vertical">Audit type</label>
+            <select id="vertical" aria-describedby="verticalSub"></select>
+
+            <div class="drop" id="drop" role="button" tabindex="0" aria-label="Choose or drop the packet's files">
+              <div class="di" aria-hidden="true">
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M7 10l5-5 5 5"/><path d="M12 5v12"/></svg>
+              </div>
+              <div><strong>Drop files here</strong> or click to choose</div>
+              <div class="hint">PDF, images, DOCX, TXT — one combined file or several. Scans welcome.</div>
             </div>
-            <h3>Upload a document to start</h3>
-            <p>Add a source in the sidebar, then ask questions answered only from its contents.</p>
-          </div>
-        </div>
-      </div>
+            <input id="files" type="file" multiple aria-hidden="true"
+              accept=".pdf,.docx,.txt,.text,.md,.markdown,.png,.jpg,.jpeg,.webp,.tif,.tiff" />
 
-      <div id="auditView">
-        <div class="audit-inner">
-          <div class="vertical-row">
-            <label for="auditVertical">Audit type</label>
-            <select id="auditVertical"></select>
-          </div>
-          <label class="audit-drop" for="auditFiles">
-            <div><strong>Choose the packet's files</strong> to audit</div>
-            <div class="file-name" id="auditFilesLabel">Commercial invoice · packing list · bill of lading · certificate of origin</div>
-          </label>
-          <input id="auditFiles" type="file" multiple accept=".pdf,.docx,.txt,.text,.md,.markdown,.png,.jpg,.jpeg,.webp,.tif,.tiff" />
-          <div class="audit-files" id="auditFileList"></div>
-          <button class="btn btn-primary btn-block" id="auditBtn" disabled>Audit packet</button>
-          <div id="auditStatus" class="status"></div>
-          <div id="auditResult"></div>
-          <div id="auditRuns" class="runs" style="display:none;"></div>
-        </div>
-      </div>
+            <div class="files-list" id="fileList"></div>
+            <button class="btn btn-primary btn-block" id="auditBtn" style="margin-top:12px;" disabled>Audit packet</button>
+            <div class="status" id="status" role="status" aria-live="polite"></div>
+          </section>
 
-      <div class="composer">
-        <div class="composer-inner">
-          <div class="box">
-            <textarea id="question" rows="1" placeholder="Ask a question about your document…"></textarea>
-            <button class="btn btn-primary send" id="askBtn" title="Ask (⌘/Ctrl + Enter)" disabled aria-label="Ask">
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 2 11 13"/><path d="M22 2 15 22l-4-9-9-4z"/></svg>
-            </button>
-          </div>
-          <div class="hint">
-            <span id="remaining"></span>
-            <span>⌘/Ctrl + Enter to send</span>
-          </div>
+          <section class="result" id="result" aria-live="polite"></section>
         </div>
       </div>
     </main>
   </div>
 
-  <div class="toast" id="toast"></div>
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
   <script>
+    "use strict";
     const $ = (id) => document.getElementById(id);
-    const app = $("app");
+    const app = $("app"), mainContentEl = $("mainContent");
 
-    // ---- theme ----
+    // ---------- Theme ----------
     const themeBtn = $("themeBtn");
-    const savedTheme = localStorage.getItem("theme");
-    if (savedTheme) document.documentElement.setAttribute("data-theme", savedTheme);
+    function applyThemeState() {
+      const t = document.documentElement.getAttribute("data-theme");
+      const dark = t ? t === "dark" : window.matchMedia("(prefers-color-scheme: dark)").matches;
+      themeBtn.setAttribute("aria-pressed", String(dark));
+      $("themeIcon").innerHTML = dark
+        ? '<path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/>'
+        : '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M6.3 17.7l-1.4 1.4M19.1 4.9l-1.4 1.4"/>';
+    }
+    (function initTheme() {
+      const saved = localStorage.getItem("theme");
+      if (saved === "dark" || saved === "light") document.documentElement.setAttribute("data-theme", saved);
+      applyThemeState();
+    })();
     themeBtn.addEventListener("click", () => {
       const cur = document.documentElement.getAttribute("data-theme");
-      const next = cur === "dark" ? "light" : "dark";
+      const dark = cur ? cur === "dark" : window.matchMedia("(prefers-color-scheme: dark)").matches;
+      const next = dark ? "light" : "dark";
       document.documentElement.setAttribute("data-theme", next);
       localStorage.setItem("theme", next);
+      applyThemeState();
     });
 
-    // ---- mobile nav ----
-    const closeNav = () => app.classList.remove("nav-open");
-    $("hamburger").addEventListener("click", () => app.classList.toggle("nav-open"));
-    $("scrim").addEventListener("click", closeNav);
+    // ---------- Mobile nav ----------
+    const hamburger = $("hamburger");
+    function setNav(open) { app.classList.toggle("nav-open", open); hamburger.setAttribute("aria-expanded", String(open)); }
+    hamburger.addEventListener("click", () => setNav(!app.classList.contains("nav-open")));
+    $("scrim").addEventListener("click", () => setNav(false));
+    document.addEventListener("keydown", (e) => { if (e.key === "Escape") setNav(false); });
 
-    // ---- toast ----
+    // ---------- Toast ----------
     let toastTimer;
     function toast(msg, kind) {
       const t = $("toast"); t.textContent = msg; t.className = "toast show" + (kind ? " " + kind : "");
-      clearTimeout(toastTimer); toastTimer = setTimeout(() => (t.className = "toast"), 3200);
+      clearTimeout(toastTimer); toastTimer = setTimeout(() => (t.className = "toast"), 3000);
     }
+    function esc(s) { const d = document.createElement("div"); d.textContent = s == null ? "" : s; return d.innerHTML; }
+    function setStatus(msg, kind) { const el = $("status"); el.className = "status" + (kind ? " " + kind : ""); el.innerHTML = msg || ""; }
 
-    function detailText(data) {
-      const d = data && data.detail; if (!d) return "";
-      return typeof d === "string" ? d : (d.message || JSON.stringify(d));
-    }
-    // Parse a response body defensively: an empty/dropped body (e.g. a worker restart or a
-    // provider timeout) must surface as a clean message, not "Unexpected end of JSON input".
+    // ---------- Networking helpers ----------
     async function readJson(r) {
       let t = ""; try { t = await r.text(); } catch { t = ""; }
       if (!t) return r.ok ? {} : { detail: "The server closed the connection (Error " + r.status + "). Please retry." };
       try { return JSON.parse(t); } catch { return { detail: t.slice(0, 300) }; }
     }
-    // Never let a request hang forever: abort after `ms` so the UI shows a clear message
-    // instead of spinning (e.g. a cold-starting free instance or an exhausted quota).
-    async function fetchWithTimeout(url, opts, ms) {
-      const ctrl = new AbortController();
-      const id = setTimeout(() => ctrl.abort(), ms);
-      try { return await fetch(url, { ...opts, signal: ctrl.signal }); }
-      finally { clearTimeout(id); }
+    function detailText(d) { const x = d && d.detail; return !x ? "" : (typeof x === "string" ? x : (x.message || JSON.stringify(x))); }
+    async function fetchTimeout(url, opts, ms) {
+      const c = new AbortController(); const id = setTimeout(() => c.abort(), ms);
+      try { return await fetch(url, { ...opts, signal: c.signal }); } finally { clearTimeout(id); }
     }
-    function setStatus(el, msg, kind) { el.className = "status" + (kind ? " " + kind : ""); el.innerHTML = msg; }
-    const spin = (t) => '<span class="spinner"></span>' + t;
 
-    // ---- BYO keys (per tab; headers only) ----
-    const byo = { cohere: sessionStorage.getItem("cohereKey") || "", google: sessionStorage.getItem("googleKey") || "" };
-    const hasKeys = () => Boolean(byo.cohere && byo.google);
-    // Ask/ingest need both keys; Audit needs only Google (no Cohere embeddings on that path).
-    const authHeaders = () => hasKeys() ? { "X-Cohere-Api-Key": byo.cohere, "X-Google-Api-Key": byo.google } : {};
-    const auditHeaders = () => {
-      const h = {};
-      if (byo.google) h["X-Google-Api-Key"] = byo.google;
-      if (byo.cohere) h["X-Cohere-Api-Key"] = byo.cohere;
-      return h;
-    };
-    function refreshMode() {
-      const pill = $("modePill");
-      $("cohereKey").value = byo.cohere; $("googleKey").value = byo.google;
-      if (hasKeys()) { $("modeText").textContent = "your own keys"; pill.classList.add("own"); }
-      else if (byo.google) { $("modeText").textContent = "your Google key"; pill.classList.add("own"); }
-      else { $("modeText").textContent = "shared demo keys"; pill.classList.remove("own"); }
+    // ---------- BYO Google key (audit path is Gemini-only) ----------
+    const byo = { google: sessionStorage.getItem("googleKey") || "" };
+    const authHeaders = () => byo.google ? { "X-Google-Api-Key": byo.google } : {};
+    function refreshKeyMode() {
+      const pill = $("keyMode");
+      $("googleKey").value = byo.google;
+      if (byo.google) { pill.textContent = "your Google key"; pill.classList.add("own"); }
+      else { pill.textContent = "shared demo key"; pill.classList.remove("own"); }
+      pill.prepend(Object.assign(document.createElement("span"), { className: "d" }));
     }
-    $("saveKeys").addEventListener("click", () => {
-      byo.cohere = $("cohereKey").value.trim(); byo.google = $("googleKey").value.trim();
-      if (!byo.google && !byo.cohere) { setStatus($("keysStatus"), "Enter your Google key (Audit), plus Cohere for Ask.", "err"); return; }
-      sessionStorage.setItem("cohereKey", byo.cohere); sessionStorage.setItem("googleKey", byo.google);
-      const msg = hasKeys() ? "✓ Using your keys (this tab)."
-        : byo.google ? "✓ Google key set — Audit runs on your quota. Add Cohere to use Ask."
-        : "Add your Google key to run audits on your own quota.";
-      setStatus($("keysStatus"), msg, byo.google ? "ok" : "err"); refreshMode(); toast("Key settings updated");
+    $("saveKey").addEventListener("click", () => {
+      byo.google = $("googleKey").value.trim();
+      if (!byo.google) { sessionStorage.removeItem("googleKey"); toast("Cleared — using shared key"); }
+      else { sessionStorage.setItem("googleKey", byo.google); toast("Now using your Google key"); }
+      refreshKeyMode();
     });
-    $("clearKeys").addEventListener("click", () => {
-      byo.cohere = ""; byo.google = ""; sessionStorage.removeItem("cohereKey"); sessionStorage.removeItem("googleKey");
-      $("cohereKey").value = ""; $("googleKey").value = ""; setStatus($("keysStatus"), "Back to shared keys.", ""); refreshMode();
-    });
-    refreshMode();
+    $("clearKey").addEventListener("click", () => { byo.google = ""; sessionStorage.removeItem("googleKey"); refreshKeyMode(); toast("Using shared key"); });
+    refreshKeyMode();
 
-    // ---- readiness ----
+    // ---------- Verticals ----------
+    const verticalEl = $("vertical");
+    function updateSub() {
+      const o = verticalEl.options[verticalEl.selectedIndex];
+      $("verticalSub").textContent = o ? ("Checking against " + o.textContent + ".") : "Select an audit type and upload the documents.";
+    }
+    async function loadVerticals() {
+      try {
+        const list = await readJson(await fetch("/checklists"));
+        if (!Array.isArray(list) || !list.length) return;
+        verticalEl.innerHTML = "";
+        list.forEach(c => { const o = document.createElement("option"); o.value = c.id; o.textContent = c.name; if (c.id === "customs") o.selected = true; verticalEl.appendChild(o); });
+        updateSub();
+      } catch {}
+    }
+    verticalEl.addEventListener("change", updateSub);
+
+    // ---------- File selection (click + drag/drop) ----------
+    const dropEl = $("drop"), filesEl = $("files"), auditBtn = $("auditBtn");
+    let picked = [];
+    function renderFiles() {
+      const list = $("fileList"); list.innerHTML = "";
+      picked.forEach((f, i) => {
+        const row = document.createElement("div"); row.className = "file-chip";
+        row.innerHTML = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color:var(--accent);flex:none"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg><span class="fn"></span><button class="rm" aria-label="Remove file">✕</button>';
+        row.querySelector(".fn").textContent = f.name;
+        row.querySelector(".rm").addEventListener("click", () => { picked.splice(i, 1); renderFiles(); });
+        list.appendChild(row);
+      });
+      auditBtn.disabled = picked.length === 0;
+    }
+    function addFiles(fileList) { picked = picked.concat(Array.from(fileList || [])); renderFiles(); clearResultOnly(); }
+    dropEl.addEventListener("click", () => filesEl.click());
+    dropEl.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); filesEl.click(); } });
+    filesEl.addEventListener("change", () => { addFiles(filesEl.files); filesEl.value = ""; });
+    ["dragenter", "dragover"].forEach(ev => dropEl.addEventListener(ev, (e) => { e.preventDefault(); dropEl.classList.add("drag"); }));
+    ["dragleave", "drop"].forEach(ev => dropEl.addEventListener(ev, (e) => { e.preventDefault(); if (ev !== "dragover") dropEl.classList.remove("drag"); }));
+    dropEl.addEventListener("drop", (e) => { if (e.dataTransfer && e.dataTransfer.files) addFiles(e.dataTransfer.files); });
+
+    // ---------- Audit state (server-backed history) ----------
+    const STATUSES = ["present", "missing", "deficient", "needs_review"];
+    const STATUS_LABEL = { present: "Present", missing: "Missing", deficient: "Deficient", needs_review: "Needs review" };
+    let current = null;      // the audit currently on screen: {packet_id, checklist_name, report, request, at, files?}
+    let history = [];        // summaries from GET /audits
+    function toMs(v) { return typeof v === "number" ? v : (Date.parse(v) || Date.now()); }
+    function ago(ts) { const s = Math.round((Date.now() - ts) / 1000); if (s < 60) return "just now";
+      const m = Math.round(s / 60); if (m < 60) return m + " min ago"; const h = Math.round(m / 60);
+      if (h < 24) return h + "h ago"; return new Date(ts).toLocaleDateString(); }
+    const gapCount = (rep) => rep.missing.length + rep.deficient.length + rep.needs_review.length;
+
+    // ---------- Run an audit ----------
+    auditBtn.addEventListener("click", async () => {
+      if (!picked.length) return;
+      auditBtn.disabled = true; clearResultOnly();
+      setStatus('<span class="spinner"></span>Auditing packet…');
+      try {
+        const form = new FormData();
+        picked.forEach(f => form.append("files", f));
+        if (verticalEl.value) form.append("checklist_id", verticalEl.value);
+        const r = await fetchTimeout("/audit", { method: "POST", body: form, headers: authHeaders() }, 150000);
+        const data = await readJson(r);
+        if (!r.ok) throw new Error(detailText(data) || ("Error " + r.status));
+        setStatus("");
+        current = {
+          packet_id: data.packet_id,
+          checklist_name: (verticalEl.options[verticalEl.selectedIndex] || {}).textContent || "Audit",
+          report: data.report, request: data.request_summary || "",
+          at: Date.now(), files: picked.map(f => f.name),
+        };
+        renderReport(); loadHistory();
+        $("result").scrollIntoView({ behavior: "smooth", block: "start" });
+      } catch (e) {
+        const msg = e.name === "AbortError"
+          ? "Timed out (>150s). The instance may be waking or the shared quota is spent — retry, or add your own Google key."
+          : e.message;
+        setStatus("✕ " + esc(msg), "err");
+      } finally { auditBtn.disabled = picked.length === 0; }
+    });
+
+    $("newAuditBtn").addEventListener("click", () => {
+      picked = []; renderFiles(); clearResultOnly(); setStatus(""); current = null; renderHistory();
+      setNav(false); mainContentEl.scrollTo({ top: 0, behavior: "smooth" }); dropEl.focus();
+    });
+    function clearResultOnly() { $("result").innerHTML = ""; }
+
+    // ---------- History (server-backed) ----------
+    async function loadHistory() {
+      try {
+        const list = await readJson(await fetch("/audits"));
+        history = Array.isArray(list) ? list : [];
+      } catch { history = []; }
+      renderHistory();
+    }
+    function renderHistory() {
+      const wrap = $("runsList");
+      if (!history.length) { wrap.innerHTML = '<div class="empty-hint" id="runsEmpty">No audits yet.</div>'; return; }
+      wrap.innerHTML = "";
+      history.forEach(s => {
+        const b = document.createElement("button"); b.className = "run"; b.setAttribute("role", "listitem");
+        if (current && s.packet_id === current.packet_id) b.setAttribute("aria-current", "true");
+        const gaps = s.missing + s.deficient + s.needs_review;
+        const tag = document.createElement("span"); tag.className = "tag " + (s.is_clear ? "clear" : "gaps");
+        tag.style.fontSize = "10px"; tag.style.padding = "2px 7px"; tag.textContent = s.is_clear ? "CLEAR" : (gaps + " gap" + (gaps === 1 ? "" : "s"));
+        const name = document.createElement("span"); name.className = "files"; name.textContent = s.checklist_name;
+        const when = document.createElement("span"); when.className = "when";
+        when.textContent = ago(toMs(s.created_at)) + (s.reviewed_count ? " · " + s.reviewed_count + " reviewed" : "");
+        b.append(tag, name, when);
+        b.addEventListener("click", () => openAudit(s.packet_id));
+        wrap.appendChild(b);
+      });
+    }
+    async function openAudit(packetId) {
+      setNav(false);
+      try {
+        const r = await fetch("/audits/" + encodeURIComponent(packetId));
+        const data = await readJson(r);
+        if (!r.ok) throw new Error(detailText(data) || ("Error " + r.status));
+        current = { packet_id: data.packet_id, checklist_name: data.checklist_name,
+          report: data.report, request: data.request_summary || "", at: toMs(data.created_at) };
+        renderReport(); renderHistory();
+        $("result").scrollIntoView({ behavior: "smooth", block: "start" });
+      } catch (e) { toast(e.message || "Could not open audit", "err"); }
+    }
+
+    // ---------- Review a finding ----------
+    async function reviewFinding(requirementId, action, status, note) {
+      if (!current) return;
+      try {
+        const r = await fetchTimeout("/audits/" + encodeURIComponent(current.packet_id)
+          + "/findings/" + encodeURIComponent(requirementId) + "/review",
+          { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action, status, note }) }, 30000);
+        const data = await readJson(r);
+        if (!r.ok) throw new Error(detailText(data) || ("Error " + r.status));
+        current = { packet_id: data.packet_id, checklist_name: data.checklist_name,
+          report: data.report, request: data.request_summary || "", at: current.at, files: current.files };
+        renderReport(); loadHistory();
+        toast(action === "accept" ? "Marked as reviewed" : "Verdict overridden");
+      } catch (e) { toast(e.message || "Review failed", "err"); }
+    }
+
+    // ---------- Render report ----------
+    function renderReport() {
+      const rep = current.report, wrap = $("result"); wrap.innerHTML = "";
+      const head = document.createElement("div"); head.className = "verdict";
+      const tag = document.createElement("span"); tag.className = "tag " + (rep.is_clear ? "clear" : "gaps");
+      tag.textContent = rep.is_clear ? "CLEAR" : "GAPS FOUND";
+      const meta = document.createElement("span"); meta.className = "meta";
+      const gaps = gapCount(rep);
+      const parts = [rep.is_clear ? "Ready to file" : (gaps + " item" + (gaps === 1 ? "" : "s") + " need attention")];
+      if (current.checklist_name) parts.push(current.checklist_name);
+      if (current.files && current.files.length) parts.push(current.files.length + " file" + (current.files.length === 1 ? "" : "s"));
+      parts.push(ago(current.at));
+      meta.textContent = parts.join(" · ");
+      head.append(tag, meta);
+
+      if (current.request) {
+        const actions = document.createElement("div"); actions.className = "actions no-print";
+        actions.append(
+          mkBtn("Copy request", async () => { try { await navigator.clipboard.writeText(current.request); toast("Request copied"); } catch { toast("Copy failed", "err"); } }),
+          mkBtn("Download", () => {
+            const url = URL.createObjectURL(new Blob([current.request], { type: "text/markdown" }));
+            const a = document.createElement("a"); a.href = url; a.download = "audit-request.md";
+            document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
+          }),
+          mkBtn("Print / PDF", () => window.print())
+        );
+        head.append(actions);
+      }
+      wrap.appendChild(head);
+
+      const buckets = [
+        ["Missing", rep.missing, "b-missing"],
+        ["Deficient", rep.deficient, "b-deficient"],
+        ["Needs review", rep.needs_review, "b-review"],
+        ["Present", rep.present, "b-present"],
+      ];
+      buckets.forEach(([label, items, cls]) => {
+        if (!items || !items.length) return;
+        const sec = document.createElement("section"); sec.className = "bucket " + cls;
+        const h = document.createElement("h3"); h.innerHTML = '<span class="dot"></span>' + esc(label) + " (" + items.length + ")";
+        sec.appendChild(h);
+        items.forEach(f => sec.appendChild(findingEl(f)));
+        wrap.appendChild(sec);
+      });
+    }
+    function mkBtn(label, fn) { const b = document.createElement("button"); b.className = "btn btn-ghost btn-sm"; b.textContent = label; b.addEventListener("click", fn); return b; }
+
+    function findingEl(f) {
+      const el = document.createElement("details"); el.className = "finding";
+      const conf = Math.round((f.confidence || 0) * 100);
+      const reviewed = !!f.review;
+      const sum = document.createElement("summary");
+      sum.innerHTML = '<span class="txt"></span>' + (reviewed ? '<span class="reviewed-mark no-print" title="Reviewed">✓</span>' : '') + '<span class="conf">' + conf + '%</span>';
+      sum.querySelector(".txt").textContent = f.summary;
+      el.appendChild(sum);
+
+      if (f.sources && f.sources.length) {
+        const src = document.createElement("div"); src.className = "src";
+        f.sources.forEach(s => {
+          const line = document.createElement("span"); line.className = "cite";
+          line.textContent = "↳ " + s.doc_id + (s.page ? " · p." + s.page : "");
+          src.appendChild(line);
+          if (s.snippet) { const q = document.createElement("div"); q.className = "snip"; q.textContent = s.snippet; src.appendChild(q); }
+        });
+        el.appendChild(src);
+      }
+      el.appendChild(reviewEl(f));
+      return el;
+    }
+
+    function reviewEl(f) {
+      const box = document.createElement("div"); box.className = "review no-print";
+      const rev = f.review;
+      if (rev) {
+        const badge = document.createElement("span");
+        if (rev.action === "override") {
+          badge.className = "rev-badge overridden";
+          badge.textContent = "✎ Overridden";
+          const from = document.createElement("span"); from.className = "rev-machine";
+          from.textContent = "machine said " + (STATUS_LABEL[f.machine_status] || f.machine_status);
+          box.append(badge, from);
+        } else {
+          badge.className = "rev-badge accepted"; badge.textContent = "✓ Accepted"; box.append(badge);
+        }
+        if (rev.note) { const n = document.createElement("span"); n.className = "rev-note"; n.textContent = "“" + rev.note + "”"; box.append(n); }
+      }
+
+      const actions = document.createElement("div"); actions.className = "rev-actions";
+      const acceptBtn = mkBtn(rev && rev.action === "accept" ? "Accepted" : "Accept", () => reviewFinding(f.requirement_id, "accept", null, null));
+      if (rev && rev.action === "accept") acceptBtn.disabled = true;
+      const overrideBtn = mkBtn(rev ? "Change" : "Override", () => { form.hidden = !form.hidden; if (!form.hidden) form.querySelector("select").focus(); });
+      actions.append(acceptBtn, overrideBtn);
+      box.append(actions);
+
+      const form = document.createElement("div"); form.className = "rev-form"; form.hidden = true;
+      const sel = document.createElement("select"); sel.setAttribute("aria-label", "Corrected status");
+      STATUSES.filter(s => s !== f.machine_status).forEach(s => {
+        const o = document.createElement("option"); o.value = s; o.textContent = STATUS_LABEL[s];
+        if (f.review && f.review.action === "override" && f.review.status === s) o.selected = true;
+        sel.appendChild(o);
+      });
+      const note = document.createElement("input"); note.type = "text"; note.placeholder = "Why? (optional note)";
+      note.maxLength = 2000; if (f.review && f.review.note) note.value = f.review.note;
+      const save = mkBtn("Save", () => reviewFinding(f.requirement_id, "override", sel.value, note.value.trim() || null));
+      save.className = "btn btn-primary btn-sm";
+      const cancel = mkBtn("Cancel", () => { form.hidden = true; });
+      form.append(sel, note, save, cancel);
+      box.append(form);
+      return box;
+    }
+
+    // ---------- Readiness ----------
     async function checkReadiness() {
       try { const r = await fetch("/health"); if (!r.ok) throw 0; $("banner").style.display = "none"; }
       catch { $("banner").textContent = "Waking the service up… (free hosting sleeps when idle). Retrying…";
         $("banner").style.display = "block"; setTimeout(checkReadiness, 3000); }
     }
 
-    // ---- ingest ----
-    let hasCorpus = false;
-    const fileEl = $("file"), ingestBtn = $("ingestBtn");
-    fileEl.addEventListener("change", () => { $("fileName").textContent = fileEl.files[0] ? fileEl.files[0].name : ".md · .txt · .pdf · .docx"; });
-    ingestBtn.addEventListener("click", async () => {
-      const file = fileEl.files[0];
-      if (!file) { setStatus($("ingestStatus"), "Choose a file first.", "err"); return; }
-      ingestBtn.disabled = true; setStatus($("ingestStatus"), spin("Ingesting & embedding…"));
-      try {
-        const form = new FormData(); form.append("file", file);
-        const r = await fetch("/ingest/file", { method: "POST", body: form, headers: authHeaders() });
-        const data = await readJson(r);
-        if (!r.ok) throw new Error(detailText(data) || ("Error " + r.status));
-        hasCorpus = true; $("askBtn").disabled = false;
-        setStatus($("ingestStatus"), "✓ " + data.sections_written + " sections indexed.", "ok");
-        addSource(file.name, data.sections_written);
-        toast("Document ingested — ask away"); closeNav();
-      } catch (e) { setStatus($("ingestStatus"), "✕ " + e.message, "err"); }
-      finally { ingestBtn.disabled = false; }
-    });
-    function addSource(name, sections) {
-      $("sourcesEmpty").style.display = "none";
-      const el = document.createElement("div"); el.className = "source-item";
-      el.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg><div class="meta"><div class="fn"></div><div class="sub"></div></div>';
-      el.querySelector(".fn").textContent = name;
-      el.querySelector(".sub").textContent = sections + " section" + (sections === 1 ? "" : "s") + " · current source";
-      const list = $("sourcesList"); list.querySelectorAll(".source-item").forEach(n => n.remove());
-      list.appendChild(el);
-    }
-
-    // ---- ask ----
-    const questionEl = $("question"), askBtn = $("askBtn"), threadInner = $("threadInner"), thread = $("thread");
-    questionEl.addEventListener("input", () => { questionEl.style.height = "auto"; questionEl.style.height = Math.min(questionEl.scrollHeight, 160) + "px"; });
-    questionEl.addEventListener("keydown", (e) => { if ((e.metaKey || e.ctrlKey) && e.key === "Enter" && !askBtn.disabled) askBtn.click(); });
-    askBtn.addEventListener("click", ask);
-
-    function scrollDown() { thread.scrollTop = thread.scrollHeight; }
-    function esc(s) { const d = document.createElement("div"); d.textContent = s; return d.innerHTML; }
-
-    async function ask() {
-      const q = questionEl.value.trim();
-      if (!q) return;
-      if (!hasCorpus) { toast("Upload a document first", "err"); return; }
-      const empty = $("emptyState"); if (empty) empty.remove();
-      askBtn.disabled = true;
-
-      const turn = document.createElement("div"); turn.className = "turn";
-      const qEl = document.createElement("div"); qEl.className = "q"; qEl.textContent = q;
-      const aEl = document.createElement("div"); aEl.className = "a";
-      aEl.innerHTML = '<div class="skeleton"><div class="line" style="width:92%"></div><div class="line" style="width:98%"></div><div class="line" style="width:70%"></div></div>';
-      turn.appendChild(qEl); turn.appendChild(aEl); threadInner.appendChild(turn);
-      questionEl.value = ""; questionEl.style.height = "auto"; scrollDown();
-
-      try {
-        const r = await fetch("/ask", { method: "POST",
-          headers: { "content-type": "application/json", ...authHeaders() }, body: JSON.stringify({ question: q }) });
-        const data = await readJson(r);
-        if (r.status === 429 && data.detail && data.detail.byok_required) {
-          aEl.innerHTML = '<div class="status err">✕ ' + esc(data.detail.message) + '</div>';
-          $("keysDetails").open = true; app.classList.add("nav-open"); toast("Free limit reached — add your keys", "err");
-          return;
-        }
-        if (!r.ok) throw new Error(detailText(data) || ("Error " + r.status));
-        const left = r.headers.get("X-Free-Remaining");
-        $("remaining").textContent = left !== null ? (left + " free question" + (left === "1" ? "" : "s") + " left today") : "";
-        renderAnswer(aEl, data);
-      } catch (e) { aEl.innerHTML = '<div class="status err">✕ ' + esc(e.message) + '</div>'; }
-      finally { askBtn.disabled = false; scrollDown(); }
-    }
-
-    function renderAnswer(aEl, data) {
-      aEl.innerHTML = "";
-      const ans = document.createElement("div"); ans.className = "answer-text"; ans.textContent = data.answer; aEl.appendChild(ans);
-      if (data.sources && data.sources.length) {
-        const wrap = document.createElement("div"); wrap.className = "srcs";
-        wrap.innerHTML = '<div class="srcs-label">Sources</div>';
-        const chips = document.createElement("div"); chips.className = "chips";
-        const cards = document.createElement("div");
-        data.sources.forEach((s, i) => {
-          const title = (s.metadata && s.metadata.title) ? s.metadata.title : ("Source " + (i + 1));
-          const chip = document.createElement("button"); chip.className = "chip";
-          chip.innerHTML = '<span class="n">' + (i + 1) + '</span>'; chip.appendChild(document.createTextNode(title));
-          const card = document.createElement("details"); card.className = "src-card";
-          card.innerHTML = '<summary><span class="n">' + (i + 1) + '</span><span></span></summary><div class="body"></div>';
-          card.querySelector("summary span:last-child").textContent = title;
-          card.querySelector(".body").textContent = s.content;
-          chip.addEventListener("click", () => { card.open = !card.open; if (card.open) card.scrollIntoView({ behavior: "smooth", block: "nearest" }); });
-          chips.appendChild(chip); cards.appendChild(card);
-        });
-        wrap.appendChild(chips); wrap.appendChild(cards); aEl.appendChild(wrap);
-      }
-    }
-
-    // ---- mode switch (ask / audit) ----
-    const mainEl = $("mainEl");
-    const auditVerticalEl = $("auditVertical");
-    const verticalName = () => {
-      const opt = auditVerticalEl.options[auditVerticalEl.selectedIndex];
-      return opt ? opt.textContent : "the active checklist";
-    };
-    function auditSubtitle() {
-      $("topSub").textContent = "Check a submission against " + verticalName() + " — see what's missing before filing.";
-    }
-    function setMode(mode) {
-      mainEl.setAttribute("data-mode", mode);
-      $("modeAsk").classList.toggle("active", mode === "ask");
-      $("modeAudit").classList.toggle("active", mode === "audit");
-      if (mode === "audit") {
-        $("topTitle").textContent = "Audit a packet";
-        auditSubtitle();
-      } else {
-        $("topTitle").textContent = "Ask your documents";
-        $("topSub").textContent = "Answers grounded in your uploaded content — with sources.";
-      }
-    }
-
-    // Populate the vertical picker from the manifest registry.
-    async function loadVerticals() {
-      try {
-        const r = await fetch("/checklists");
-        const list = await readJson(r);
-        if (!Array.isArray(list) || !list.length) return;
-        auditVerticalEl.innerHTML = "";
-        list.forEach(c => {
-          const o = document.createElement("option");
-          o.value = c.id; o.textContent = c.name;
-          if (c.id === "customs") o.selected = true;
-          auditVerticalEl.appendChild(o);
-        });
-        if (mainEl.getAttribute("data-mode") === "audit") auditSubtitle();
-      } catch { /* leave the picker empty; audit falls back to the server default */ }
-    }
-    auditVerticalEl.addEventListener("change", auditSubtitle);
-
-    $("modeAsk").addEventListener("click", () => setMode("ask"));
-    $("modeAudit").addEventListener("click", () => setMode("audit"));
-
-    // ---- audit ----
-    const auditFilesEl = $("auditFiles"), auditBtn = $("auditBtn");
-    auditFilesEl.addEventListener("change", () => {
-      const files = Array.from(auditFilesEl.files || []);
-      const list = $("auditFileList"); list.innerHTML = "";
-      files.forEach(f => { const d = document.createElement("div"); d.className = "audit-file"; d.textContent = f.name; list.appendChild(d); });
-      auditBtn.disabled = files.length === 0;
-      $("auditFilesLabel").textContent = files.length ? (files.length + " file" + (files.length === 1 ? "" : "s") + " selected") :
-        "Commercial invoice · packing list · bill of lading · certificate of origin";
-      // Each run is independent — clear the shown report/status so a new run reads fresh.
-      $("auditResult").innerHTML = ""; setStatus($("auditStatus"), "");
-      currentRunId = null; renderRuns();
-    });
-
-    // ---- run history (per-session; kept in the tab so a refresh keeps your audits) ----
-    let auditRuns = [];
-    let currentRunId = null;
-    try { auditRuns = JSON.parse(sessionStorage.getItem("auditRuns") || "[]"); } catch { auditRuns = []; }
-    function persistRuns() { try { sessionStorage.setItem("auditRuns", JSON.stringify(auditRuns.slice(0, 10))); } catch {} }
-    function ago(ts) {
-      const s = Math.round((Date.now() - ts) / 1000);
-      if (s < 60) return "just now";
-      const m = Math.round(s / 60); if (m < 60) return m + " min ago";
-      const h = Math.round(m / 60); if (h < 24) return h + "h ago";
-      return new Date(ts).toLocaleDateString();
-    }
-    const gapCount = (rep) => rep.missing.length + rep.deficient.length + rep.needs_review.length;
-
-    auditBtn.addEventListener("click", async () => {
-      const files = Array.from(auditFilesEl.files || []);
-      if (!files.length) return;
-      auditBtn.disabled = true; $("auditResult").innerHTML = "";
-      setStatus($("auditStatus"), spin("Auditing packet…"));
-      try {
-        const form = new FormData(); files.forEach(f => form.append("files", f));
-        if (auditVerticalEl.value) form.append("checklist_id", auditVerticalEl.value);
-        const r = await fetchWithTimeout("/audit", { method: "POST", body: form, headers: auditHeaders() }, 150000);
-        const data = await readJson(r);
-        if (!r.ok) throw new Error(detailText(data) || ("Error " + r.status));
-        setStatus($("auditStatus"), "");
-        const run = { id: data.packet_id, at: Date.now(), files: files.map(f => f.name), report: data.report,
-          request: data.request_summary || "", checklist: data.checklist_id || (auditVerticalEl.value || "audit") };
-        auditRuns.unshift(run); auditRuns = auditRuns.slice(0, 10); persistRuns();
-        showRun(run); renderRuns();
-      } catch (e) {
-        const msg = e.name === "AbortError"
-          ? "Timed out (>150s). The free instance may be waking or the shared quota is exhausted — retry, or add your own Google key (left)."
-          : e.message;
-        setStatus($("auditStatus"), "✕ " + msg, "err");
-      }
-      finally { auditBtn.disabled = false; }
-    });
-
-    function startNewAudit() {
-      auditFilesEl.value = ""; $("auditFileList").innerHTML = "";
-      auditBtn.disabled = true;
-      $("auditFilesLabel").textContent = "Commercial invoice · packing list · bill of lading · certificate of origin";
-      $("auditResult").innerHTML = ""; setStatus($("auditStatus"), "");
-      currentRunId = null; renderRuns();
-      document.querySelector("#auditView .audit-drop").scrollIntoView({ behavior: "smooth", block: "start" });
-    }
-
-    function renderRuns() {
-      const wrap = $("auditRuns");
-      if (!auditRuns.length) { wrap.style.display = "none"; wrap.innerHTML = ""; return; }
-      wrap.style.display = "block"; wrap.innerHTML = "";
-      const h = document.createElement("h4"); h.textContent = "Recent audits (" + auditRuns.length + ")"; wrap.appendChild(h);
-      auditRuns.forEach(run => {
-        const gaps = gapCount(run.report);
-        const btn = document.createElement("button");
-        btn.className = "run" + (run.id === currentRunId ? " active" : "");
-        const tag = document.createElement("span");
-        tag.className = "tag " + (run.report.is_clear ? "clear" : "gaps");
-        tag.textContent = run.report.is_clear ? "CLEAR" : "GAPS";
-        const files = document.createElement("span"); files.className = "files";
-        files.textContent = run.files.join(", ");
-        const count = document.createElement("span"); count.className = "count";
-        count.textContent = run.report.is_clear ? "no gaps" : (gaps + " gap" + (gaps === 1 ? "" : "s"));
-        const when = document.createElement("span"); when.className = "when"; when.textContent = ago(run.at);
-        btn.append(tag, files, count, when);
-        btn.addEventListener("click", () => showRun(run));
-        wrap.appendChild(btn);
-      });
-    }
-
-    function showRun(run) {
-      currentRunId = run.id;
-      renderReport(run);
-      renderRuns();
-      $("auditResult").scrollIntoView({ behavior: "smooth", block: "start" });
-    }
-
-    function renderReport(run) {
-      const rep = run.report, wrap = $("auditResult"); wrap.innerHTML = "";
-
-      const head = document.createElement("div"); head.className = "result-head";
-      const tag = document.createElement("span");
-      tag.className = "tag " + (rep.is_clear ? "clear" : "gaps");
-      tag.textContent = rep.is_clear ? "CLEAR" : "GAPS FOUND";
-      const meta = document.createElement("span"); meta.className = "meta";
-      meta.textContent = (rep.is_clear ? "Ready to file" : "Resolve the items below before filing")
-        + " · " + run.files.length + " file" + (run.files.length === 1 ? "" : "s") + " · " + ago(run.at);
-      const spacer = document.createElement("span"); spacer.className = "spacer";
-      const newBtn = document.createElement("button"); newBtn.className = "btn btn-ghost btn-sm";
-      newBtn.textContent = "＋ New audit"; newBtn.addEventListener("click", startNewAudit);
-      head.append(tag, meta, spacer, newBtn);
-      // Missing-items request actions (hidden if the packet is clear / no request text).
-      if (run.request) {
-        const copyBtn = document.createElement("button"); copyBtn.className = "btn btn-ghost btn-sm no-print";
-        copyBtn.textContent = "Copy request";
-        copyBtn.addEventListener("click", async () => {
-          try { await navigator.clipboard.writeText(run.request); toast("Request copied"); }
-          catch { toast("Copy failed — select & copy manually", "err"); }
-        });
-        const dlBtn = document.createElement("button"); dlBtn.className = "btn btn-ghost btn-sm no-print";
-        dlBtn.textContent = "Download";
-        dlBtn.addEventListener("click", () => {
-          const blob = new Blob([run.request], { type: "text/markdown" });
-          const url = URL.createObjectURL(blob);
-          const a = document.createElement("a");
-          a.href = url; a.download = "audit-request-" + (run.checklist || "audit") + ".md";
-          document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
-        });
-        const printBtn = document.createElement("button"); printBtn.className = "btn btn-ghost btn-sm no-print";
-        printBtn.textContent = "Print / PDF";
-        printBtn.addEventListener("click", () => window.print());
-        head.append(copyBtn, dlBtn, printBtn);
-      }
-      wrap.appendChild(head);
-
-      const buckets = [
-        ["Missing", rep.missing, "var(--err)"],
-        ["Deficient", rep.deficient, "var(--err)"],
-        ["Needs review", rep.needs_review, "var(--warn-ink)"],
-        ["Present", rep.present, "var(--ok)"],
-      ];
-      buckets.forEach(([label, findings, color]) => {
-        if (!findings || !findings.length) return;
-        const b = document.createElement("div"); b.className = "bucket";
-        const h = document.createElement("h4");
-        h.innerHTML = '<span class="dotc"></span>' + esc(label) + " (" + findings.length + ")";
-        h.querySelector(".dotc").style.background = color;
-        b.appendChild(h);
-        findings.forEach(f => b.appendChild(findingEl(f, color)));
-        wrap.appendChild(b);
-      });
-    }
-
-    function findingEl(f, color) {
-      const el = document.createElement("details"); el.className = "finding";
-      const hasSrc = f.sources && f.sources.length;
-      if (!hasSrc) el.setAttribute("data-nosrc", "");
-      const conf = Math.round((f.confidence || 0) * 100);
-      const sum = document.createElement("summary");
-      sum.innerHTML = '<span></span><span class="conf">' + conf + '%</span>';
-      sum.querySelector("span").textContent = f.summary;
-      el.appendChild(sum);
-      if (hasSrc) {
-        const src = document.createElement("div"); src.className = "src";
-        f.sources.forEach(s => {
-          const line = document.createElement("div");
-          line.textContent = "↳ " + s.doc_id + (s.page ? (" · p." + s.page) : "");
-          src.appendChild(line);
-          if (s.snippet) { const q = document.createElement("div"); q.className = "snip"; q.textContent = s.snippet; src.appendChild(q); }
-        });
-        el.appendChild(src);
-      }
-      return el;
-    }
-
-    // Restore this session's audit history (survives a page refresh within the tab).
-    if (auditRuns.length) { currentRunId = auditRuns[0].id; renderReport(auditRuns[0]); }
-    renderRuns();
-
+    // ---------- Init ----------
+    renderFiles();
     loadVerticals();
+    loadHistory();
     checkReadiness();
   </script>
 </body>

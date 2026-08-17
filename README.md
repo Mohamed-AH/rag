@@ -1,11 +1,18 @@
-# ragchat
+# Packet Auditor
 
-A retrieval-augmented Q&A service over a document knowledge base. Ask a question in
-natural language; get an answer grounded in your content, with the source passages it
-was drawn from.
+Give it a **packet of documents** and a **checklist**; get back a structured **Gap
+Report** of what's present, what's missing, what's deficient, and what a human should
+double-check — every finding cited to the page it came from.
 
-Built on **PostgreSQL + pgvector**, **LangChain (LCEL)**, **Cohere** embeddings, and
-**Google Gemini** — exposed as a **FastAPI** service and a **Typer** CLI.
+The first vertical is **Customs Pre-Clearance** (commercial invoice, packing list, bill
+of lading, certificate of origin…), but the engine is vertical-agnostic: a new vertical
+is a **declarative YAML checklist**, not new code. Education admissions, procurement,
+healthcare credentialing, and study-visa funds ship as examples.
+
+Built on **Google Gemini** (single-pass multimodal classify-and-extract), a pure Python
+**gap engine**, and **FastAPI** + a **Typer** CLI. The project began life as a
+retrieval-augmented Q&A service (see [Ask](#ask-the-secondary-flow) below), which
+survives as a secondary feature.
 
 [![CI](https://github.com/Mohamed-AH/postgresslangchainchat/actions/workflows/ci.yml/badge.svg)](https://github.com/Mohamed-AH/postgresslangchainchat/actions/workflows/ci.yml)
 ![Python](https://img.shields.io/badge/python-3.11+-blue)
@@ -13,99 +20,142 @@ Built on **PostgreSQL + pgvector**, **LangChain (LCEL)**, **Cohere** embeddings,
 
 ---
 
-## Architecture
+## What "audit" means here
 
-One datastore, two flows. PostgreSQL holds both the canonical text (`knowledge_base`
-table) **and** the vector index (via pgvector) — there is no separate vector database to
-run, pay for, or keep in sync.
+This is not retrieve-and-answer; it's **extract-and-verify against a rubric**. The report
+has four states, and low-confidence reads are routed to `needs_review` rather than
+emitting a false `missing`/`deficient`:
+
+| State | Meaning |
+|-------|---------|
+| **present** | Required document/field found and consistent |
+| **missing** | A required document or field was not found |
+| **deficient** | Found, but fails a rule (malformed code, mismatched party, quantity discrepancy…) |
+| **needs&nbsp;review** | Read with too little confidence to judge — a human should look |
+
+Every finding carries a confidence score and a **source pointer** (`doc_id`, page,
+snippet), so the report is auditable, not a black box.
+
+The machine never has the last word: every audit is persisted, and a reviewer can
+**accept** a verdict or **override** it (e.g. mark a `needs_review` field `present` after
+checking it by hand, with a note). The report re-buckets to the effective, post-review
+state — an overridden `missing` becomes `present`, the verdict flips, the missing-items
+request re-renders — while the original machine verdict is kept for the audit trail. Past
+audits are re-openable from a server-backed history.
 
 ```mermaid
 flowchart LR
-    MD[content.md] -->|parse| ING[Ingestion]
-    ING -->|source of truth| KB[(knowledge_base<br/>table)]
-    ING -->|embed + index| VEC[(pgvector<br/>collection)]
-    KB -.same PostgreSQL.- VEC
-
-    Q[Question] --> API[FastAPI / CLI]
-    API --> SVC[RAGService]
-    SVC -->|similarity search| VEC
-    VEC -->|top-k docs| CHAIN[LCEL chain]
-    CHAIN -->|grounded prompt| LLM[Gemini]
-    LLM -->|answer + sources| API
+    F[Packet files<br/>PDF · scans · images · txt] --> R[Intake router]
+    R -->|text layer| TP[text path]
+    R -->|scanned| MP[multimodal path]
+    TP & MP --> A[Gemini analyzer<br/>single pass / file]
+    A -->|list of classified docs| EV[PacketEvidence]
+    CK[Checklist<br/>from YAML manifest] --> ENG
+    EV --> ENG[Gap engine<br/>pure, no I/O]
+    ENG --> GR[Gap Report<br/>4 buckets + citations]
+    GR --> REQ[Missing-items request<br/>client-ready email]
 ```
 
-The codebase is layered so each concern is isolated and independently testable:
+A single combined multi-page PDF (all documents in one file, in any page order) is split
+back into its constituent documents by the analyzer — one model call per file.
 
-| Layer | Module | Responsibility |
-|-------|--------|----------------|
-| Config | `ragchat.config` | Typed, validated settings from env / `.env` |
-| Ingestion | `ragchat.ingestion.parser` | Markdown → structured `Section`s |
-| Persistence | `ragchat.db.*` | SQLAlchemy models, engine, repository |
-| Retrieval | `ragchat.rag.*` | Embeddings, pgvector store, LCEL chain |
-| Orchestration | `ragchat.service` | `RAGService`: ingest + ask, dependency-injected |
-| Interfaces | `ragchat.api`, `ragchat.cli` | FastAPI service and Typer CLI |
+---
 
-See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for the design decisions and trade-offs.
+## Verticals are checklists, not code
+
+Every vertical is the *same engine* with a *different checklist*. A checklist is a
+**two-layer** structure expressed as declarative YAML in `src/ragchat/manifests/`:
+
+- **Layer 1 — presence:** which document types the packet must contain.
+- **Layer 2 — rules:** per-field and cross-document checks, composed from a fixed
+  vocabulary of **check primitives** — `regex_match`, `numeric_match`,
+  `cross_match` (text/entity), `date_valid`, `numeric_threshold` (min/max),
+  `quantity_matches`.
+
+Adding a vertical = dropping a `manifests/*.yaml` file in. **Zero engine/Python changes.**
+The manifest is validated (Pydantic, discriminated on rule `type`) and compiled to a
+`Checklist` at load. Shipped manifests: `customs`, `education_admissions`, `procurement`,
+`healthcare`, `study_visa`.
+
+```yaml
+# a sketch — see src/ragchat/manifests/customs.yaml for the real thing
+name: Customs Pre-Clearance
+documents:
+  - type: commercial_invoice
+    required: true
+    fields: [{ name: hts_code }, { name: total_quantity }]
+rules:
+  - type: regex_match
+    doc_type: commercial_invoice
+    field: hts_code
+    pattern: '^\d{4}\.\d{2}\.\d{4}$'
+    label: HTS code is well-formed
+  - type: quantity_matches
+    label: Invoice quantity matches packing list
+```
 
 ---
 
 ## Quickstart
 
-### Run everything with Docker
-
-```bash
-cp .env.example .env      # then add your COHERE_API_KEY and GOOGLE_API_KEY
-docker compose up --build
-```
-
-This starts PostgreSQL + pgvector and the API. Then load the sample corpus and ask a
-question:
-
-```bash
-docker compose exec app ragchat ingest content.md
-
-curl -s localhost:8000/ask \
-  -H 'content-type: application/json' \
-  -d '{"question": "What is a VPC?"}' | jq
-```
-
-Open <http://localhost:8000/> for the **web UI** (upload a file, then ask questions with
-sources). Interactive API docs (OpenAPI/Swagger) are at <http://localhost:8000/docs>.
-
-### Deploy it free
-
-The whole thing runs on free tiers — **Render** (web UI + API) with **Neon** for
-PostgreSQL + pgvector, and a **GitHub Actions** workflow for scheduled cleanup. A
-`render.yaml` blueprint is included; see
-**[DEPLOY.md](DEPLOY.md)** for step-by-step instructions. It's multi-tenant (per-session
-isolation), with upload caps, per-session rate limits, a global daily budget, and
-auto-expiring session data to protect the shared API keys.
-
-### Run locally
+### Run the web app
 
 ```bash
 make install                      # pip install -e ".[dev]"
-# point DATABASE_URL at a pgvector-enabled PostgreSQL, set the API keys
-ragchat ingest content.md
-ragchat ask "What is a VPC?"
+export GOOGLE_API_KEY=...          # a Gemini key (audit uses Google only)
+# point DATABASE_URL at a Postgres for run persistence
 ragchat serve                     # start the API
 ```
+
+Open <http://localhost:8000/> for the **web UI**: pick a vertical, drop the packet's
+files (one combined PDF or several), and read the Gap Report — with **Copy / Download /
+Print** to hand the missing-items request to a client. Light/dark, fully responsive,
+keyboard-accessible. Interactive API docs are at <http://localhost:8000/docs>.
+
+### Audit from the CLI
+
+```bash
+ragchat audit invoice.pdf packing_list.pdf bill_of_lading.png
+```
+
+The CLI audits against the active checklist (`ACTIVE_CHECKLIST`); the web app and
+`POST /audit` let you pick the vertical per request.
+
+### Deploy it free
+
+Runs on free tiers — **Render** (web UI + API) with **Neon** for Postgres. A
+`render.yaml` blueprint is included; see **[DEPLOY.md](DEPLOY.md)**. Set `GOOGLE_API_KEY`;
+both `LLM_MODEL` (text path) and `VISION_MODEL` (scans) default to
+`gemini-flash-lite-latest` — Flash-Lite is natively multimodal, so one generous free tier
+reads both. Tune `MAX_FILES_PER_PACKET` and `ACTIVE_CHECKLIST`. It's multi-tenant
+(per-session isolation) with upload caps and per-session rate limits; visitors can supply
+their **own** Google key via the `X-Google-Api-Key` header, used per request and never
+stored.
 
 ---
 
 ## API
 
-Each caller is an isolated **session** (a signed cookie): uploaded content and vectors
-are namespaced per session, so users never see or overwrite each other's data. Each
-visitor gets a small daily free allowance on the shared keys; beyond it they can supply
-their **own** Cohere/Gemini keys via headers (`X-Cohere-Api-Key` / `X-Google-Api-Key`),
-which are used per request and never stored — see [DEPLOY.md](DEPLOY.md#usage-limits--bring-your-own-keys).
-
 | Method | Path            | Description |
 |--------|-----------------|-------------|
-| GET    | `/health`       | Readiness probe — runs `SELECT 1`; returns **503** if the DB is unreachable |
-| POST   | `/ask`          | `{ "question": "..." }` → `{ "answer": "...", "sources": [...] }` (scoped to your session) |
-| POST   | `/ingest/file`  | multipart upload of a `.md`/`.txt`/`.pdf`/`.docx` file → rebuilds your session's knowledge base (size/section caps enforced) |
+| GET    | `/health`       | Readiness probe — `SELECT 1`; **503** if the DB is unreachable |
+| GET    | `/checklists`   | Available audit verticals (`id` + display name) for the picker |
+| POST   | `/audit`        | multipart upload of the packet (+ optional `checklist_id`) → Gap Report + rendered missing-items request |
+| GET    | `/audits`       | This session's audit history (newest first) with effective, post-review counts |
+| GET    | `/audits/{id}`  | Re-open a past audit with reviewer decisions applied |
+| POST   | `/audits/{id}/findings/{rid}/review` | Accept or override one finding's verdict |
+| POST   | `/ask`          | *(secondary)* `{ "question": "..." }` → grounded answer + sources |
+| POST   | `/ingest/file`  | *(secondary)* upload a file to build the Ask knowledge base |
+
+---
+
+## Ask — the secondary flow
+
+The original retrieval-augmented Q&A path still exists: ingest a document, then ask
+questions grounded in it with cited sources (PostgreSQL + pgvector, LangChain LCEL, Cohere
+embeddings, Gemini). It is **not** on the audit path — auditing makes direct structured
+Gemini calls with no vector store. See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for
+how the two flows share the codebase without entangling.
 
 ---
 
@@ -115,11 +165,15 @@ which are used per request and never stored — see [DEPLOY.md](DEPLOY.md#usage-
 make check     # ruff (lint + format), mypy --strict, and pytest
 ```
 
-- **Tests run with no API keys and no live database.** Embeddings, the LLM, and pgvector
-  are replaced with deterministic fakes; the relational layer runs on SQLite in-memory —
-  so the suite is fast, hermetic, and safe for CI. See [Testing](docs/ARCHITECTURE.md#testing-strategy).
-- **CI** (GitHub Actions) runs the exact same gates on every push and PR.
-- **Typed throughout** and checked with `mypy --strict`.
+- **Tests run with no API keys and no live database.** The Gemini analyzer, embeddings,
+  the LLM, and pgvector are replaced with deterministic fakes; the relational layer runs
+  on SQLite in-memory — so the suite is fast, hermetic, and safe for CI.
+- The audit **gap engine is pure** (no I/O) and exhaustively unit-tested; a hermetic
+  **eval** (`tests/eval/`) gates Customs precision/recall at **1.0** against gold packets.
+  Because Customs is loaded from `manifests/customs.yaml`, the green suite is also the
+  manifest-compilation proof.
+- **CI** runs the exact same gates on every push and PR. **Typed throughout**
+  (`mypy --strict`).
 
 Individual gates: `make lint`, `make typecheck`, `make test`.
 
@@ -127,8 +181,9 @@ Individual gates: `make lint`, `make typecheck`, `make test`.
 
 ## Tech stack
 
-Python 3.11 · FastAPI · Typer · SQLAlchemy 2.0 · pgvector · LangChain (LCEL) ·
-Cohere embeddings · Google Gemini · pydantic-settings · pytest · ruff · mypy · Docker
+Python 3.11 · FastAPI · Typer · Google Gemini (multimodal) · Pydantic · SQLAlchemy 2.0 ·
+Alembic · pytest · ruff · mypy · Docker. Secondary Ask flow adds pgvector · LangChain
+(LCEL) · Cohere.
 
 ## License
 
