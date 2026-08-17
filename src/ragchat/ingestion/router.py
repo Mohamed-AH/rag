@@ -15,11 +15,14 @@ replace them.
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from pathlib import PurePosixPath
 
 from ragchat.errors import EmptyDocumentError, UnsupportedFileTypeError
-from ragchat.ingestion.extractors import _docx_to_text, _pdf_to_text
+from ragchat.ingestion.extractors import _docx_to_text, _pdf_to_text, pdf_to_png_pages
+
+logger = logging.getLogger(__name__)
 
 _TEXT_EXTENSIONS: frozenset[str] = frozenset({".txt", ".text", ".md", ".markdown"})
 _IMAGE_EXTENSIONS: dict[str, str] = {
@@ -61,7 +64,14 @@ def _usable_text(text: str, min_chars: int) -> bool:
     return sum(1 for ch in text if not ch.isspace()) >= min_chars
 
 
-def route(filename: str, data: bytes, *, min_text_layer_chars: int = 32) -> DocumentContent:
+def route(
+    filename: str,
+    data: bytes,
+    *,
+    min_text_layer_chars: int = 32,
+    max_scan_pages: int = 10,
+    scan_dpi: int = 150,
+) -> DocumentContent:
     """Prepare ``data`` for the model, choosing the text or image path from ``filename``.
 
     Raises :class:`UnsupportedFileTypeError` for unknown extensions and
@@ -97,4 +107,16 @@ def route(filename: str, data: bytes, *, min_text_layer_chars: int = 32) -> Docu
     text = _pdf_to_text(data)
     if _usable_text(text, min_text_layer_chars):
         return DocumentContent(filename=label, mode=TEXT, text=text)
+    # Scanned PDF → rasterize each page to PNG. Every multimodal provider accepts image/png,
+    # whereas only Gemini accepts an inline application/pdf part; PNG keeps the whole fallback
+    # ladder working. If rasterization fails, fall back to the raw PDF (Gemini-only) so the
+    # audit still runs on the primary rather than failing outright.
+    try:
+        pages = pdf_to_png_pages(data, max_pages=max_scan_pages, dpi=scan_dpi)
+    except Exception:
+        logger.exception("PDF rasterization failed for '%s'; sending raw PDF (Gemini-only)", label)
+        pages = []
+    if pages:
+        media = tuple(MediaPart("image/png", png) for png in pages)
+        return DocumentContent(filename=label, mode=IMAGE, media=media)
     return DocumentContent(filename=label, mode=IMAGE, media=(MediaPart("application/pdf", data),))

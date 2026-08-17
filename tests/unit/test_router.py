@@ -51,10 +51,40 @@ def test_digital_pdf_uses_text_path(monkeypatch: pytest.MonkeyPatch) -> None:
     assert content.text == _LONG
 
 
-def test_scanned_pdf_falls_back_to_image_path(monkeypatch: pytest.MonkeyPatch) -> None:
-    # A scan yields little/no text layer -> route to the multimodal path with the raw PDF.
+def _blank_pdf(pages: int) -> bytes:
+    from pypdf import PdfWriter
+
+    writer = PdfWriter()
+    for _ in range(pages):
+        writer.add_blank_page(width=200, height=200)
+    buffer = io.BytesIO()
+    writer.write(buffer)
+    return buffer.getvalue()
+
+
+def test_scanned_pdf_rasterizes_to_png_pages(monkeypatch: pytest.MonkeyPatch) -> None:
+    # A scan (no usable text layer) is rendered to PNG pages — the format every multimodal
+    # provider accepts (Mistral/Groq reject inline application/pdf).
     monkeypatch.setattr(router_module, "_pdf_to_text", lambda _data: "   ")
-    raw = b"%PDF-1.4 scanned bytes"
+    content = route("scan.pdf", _blank_pdf(2))
+    assert content.mode == "image"
+    assert len(content.media) == 2
+    assert all(m.mime_type == "image/png" for m in content.media)
+    assert all(m.data[:8] == b"\x89PNG\r\n\x1a\n" for m in content.media)
+
+
+def test_scanned_pdf_page_cap(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(router_module, "_pdf_to_text", lambda _data: "")
+    content = route("scan.pdf", _blank_pdf(5), max_scan_pages=3)
+    assert content.mode == "image"
+    assert len(content.media) == 3  # capped
+
+
+def test_unrasterizable_pdf_falls_back_to_raw(monkeypatch: pytest.MonkeyPatch) -> None:
+    # If rendering fails (corrupt bytes), fall back to the raw PDF so the audit still runs on
+    # the primary (Gemini accepts inline PDF) rather than failing outright.
+    monkeypatch.setattr(router_module, "_pdf_to_text", lambda _data: "   ")
+    raw = b"%PDF-1.4 not really a parseable pdf"
     content = route("scan.pdf", raw)
     assert content.mode == "image"
     assert content.media[0].mime_type == "application/pdf"

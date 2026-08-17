@@ -26,6 +26,32 @@ def _pdf_to_text(data: bytes) -> str:
     return "\n\n".join(page.extract_text() or "" for page in reader.pages)
 
 
+def pdf_to_png_pages(data: bytes, *, max_pages: int = 10, dpi: int = 150) -> list[bytes]:
+    """Rasterize a PDF's pages to PNG images (one per page, up to ``max_pages``).
+
+    Scanned PDFs go to the multimodal model as images. Gemini accepts an inline PDF, but
+    Mistral/Groq/OpenAI-compatible vision models only accept real image formats — so we
+    render to PNG, which every provider accepts. Uses pypdfium2 (BSD-licensed, wheel-bundled
+    binaries — no AGPL, no system poppler) + Pillow, both imported lazily.
+    """
+    import pypdfium2 as pdfium
+    from PIL import Image  # noqa: F401  (ensures Pillow is present for to_pil)
+
+    scale = dpi / 72.0
+    pngs: list[bytes] = []
+    pdf = pdfium.PdfDocument(data)
+    try:
+        for index in range(min(len(pdf), max_pages)):
+            bitmap = pdf[index].render(scale=scale)
+            image = bitmap.to_pil().convert("RGB")
+            buffer = io.BytesIO()
+            image.save(buffer, format="PNG")
+            pngs.append(buffer.getvalue())
+    finally:
+        pdf.close()
+    return pngs
+
+
 def _docx_to_text(data: bytes) -> str:
     from docx import Document as DocxDocument
 

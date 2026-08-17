@@ -36,6 +36,11 @@ dependencies = [
     "pypdf>=4.2",
     "python-docx>=1.1",
     "pyyaml>=6.0",
+    # Rasterize scanned PDFs to PNG for the multimodal path (Mistral/Groq/OpenAI-compatible
+    # vision models accept image/png but not inline application/pdf). BSD-licensed, wheel-
+    # bundled binaries — no AGPL, no system poppler.
+    "pypdfium2>=4.30",
+    "pillow>=10.0",
 ]
 
 [project.optional-dependencies]
@@ -98,6 +103,8 @@ module = [
     "uvicorn.*",
     "docx.*",
     "pypdf.*",
+    "pypdfium2.*",
+    "PIL.*",
     "yaml",
 ]
 ignore_missing_imports = true
