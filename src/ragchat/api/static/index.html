@@ -178,7 +178,6 @@
       margin-bottom: 8px; overflow: hidden; }
     .finding > summary { list-style: none; cursor: pointer; padding: 12px 14px; display: flex; gap: 11px; align-items: flex-start; }
     .finding > summary::-webkit-details-marker { display: none; }
-    .finding[data-nosrc] > summary { cursor: default; }
     .finding .txt { flex: 1; font-size: 14px; }
     .finding .conf { font-size: 11.5px; color: var(--faint); flex: none; padding-top: 1px; font-variant-numeric: tabular-nums; }
     .finding .src { padding: 0 14px 12px 14px; font-size: 12.5px; color: var(--muted); }
@@ -189,6 +188,22 @@
     .b-deficient .dot { background: var(--err); } .b-deficient .finding { border-left-color: var(--err); }
     .b-review .dot { background: var(--warn); } .b-review .finding { border-left-color: var(--warn); }
     .b-present .dot { background: var(--ok); } .b-present .finding { border-left-color: var(--ok); }
+
+    /* review overlay on a finding */
+    .finding .review { border-top: 1px dashed var(--line); padding: 10px 14px; display: flex; flex-wrap: wrap;
+      align-items: center; gap: 8px; font-size: 12.5px; }
+    .rev-badge { display: inline-flex; align-items: center; gap: 6px; font-weight: 700; font-size: 11px;
+      letter-spacing: .02em; padding: 3px 9px; border-radius: 999px; background: var(--chip); color: var(--muted); }
+    .rev-badge.accepted { background: var(--ok-soft); color: var(--ok); }
+    .rev-badge.overridden { background: var(--accent-soft); color: var(--accent); }
+    .rev-note { flex-basis: 100%; color: var(--muted); font-style: italic; }
+    .rev-machine { color: var(--faint); }
+    .rev-actions { display: flex; gap: 7px; flex-wrap: wrap; margin-left: auto; }
+    .rev-form { flex-basis: 100%; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 4px; }
+    .rev-form select, .rev-form input { font: inherit; font-size: 12.5px; padding: 6px 9px; border-radius: var(--radius-xs);
+      border: 1px solid var(--line-strong); background: var(--surface-2); color: var(--ink); }
+    .rev-form input { flex: 1; min-width: 140px; }
+    .reviewed-mark { flex: none; color: var(--accent); font-size: 12px; }
 
     /* empty state */
     .empty { text-align: center; color: var(--muted); padding: 30px 10px; }
@@ -451,6 +466,17 @@
     ["dragleave", "drop"].forEach(ev => dropEl.addEventListener(ev, (e) => { e.preventDefault(); if (ev !== "dragover") dropEl.classList.remove("drag"); }));
     dropEl.addEventListener("drop", (e) => { if (e.dataTransfer && e.dataTransfer.files) addFiles(e.dataTransfer.files); });
 
+    // ---------- Audit state (server-backed history) ----------
+    const STATUSES = ["present", "missing", "deficient", "needs_review"];
+    const STATUS_LABEL = { present: "Present", missing: "Missing", deficient: "Deficient", needs_review: "Needs review" };
+    let current = null;      // the audit currently on screen: {packet_id, checklist_name, report, request, at, files?}
+    let history = [];        // summaries from GET /audits
+    function toMs(v) { return typeof v === "number" ? v : (Date.parse(v) || Date.now()); }
+    function ago(ts) { const s = Math.round((Date.now() - ts) / 1000); if (s < 60) return "just now";
+      const m = Math.round(s / 60); if (m < 60) return m + " min ago"; const h = Math.round(m / 60);
+      if (h < 24) return h + "h ago"; return new Date(ts).toLocaleDateString(); }
+    const gapCount = (rep) => rep.missing.length + rep.deficient.length + rep.needs_review.length;
+
     // ---------- Run an audit ----------
     auditBtn.addEventListener("click", async () => {
       if (!picked.length) return;
@@ -464,12 +490,14 @@
         const data = await readJson(r);
         if (!r.ok) throw new Error(detailText(data) || ("Error " + r.status));
         setStatus("");
-        const run = { id: data.packet_id || String(Date.now()), at: Date.now(), files: picked.map(f => f.name),
+        current = {
+          packet_id: data.packet_id,
+          checklist_name: (verticalEl.options[verticalEl.selectedIndex] || {}).textContent || "Audit",
           report: data.report, request: data.request_summary || "",
-          vertical: (verticalEl.options[verticalEl.selectedIndex] || {}).textContent || "",
-          checklist: data.checklist_id || verticalEl.value || "audit" };
-        runs.unshift(run); runs = runs.slice(0, 12); persistRuns();
-        showRun(run); renderRuns();
+          at: Date.now(), files: picked.map(f => f.name),
+        };
+        renderReport(); loadHistory();
+        $("result").scrollIntoView({ behavior: "smooth", block: "start" });
       } catch (e) {
         const msg = e.name === "AbortError"
           ? "Timed out (>150s). The instance may be waking or the shared quota is spent — retry, or add your own Google key."
@@ -479,58 +507,88 @@
     });
 
     $("newAuditBtn").addEventListener("click", () => {
-      picked = []; renderFiles(); clearResultOnly(); setStatus(""); currentRunId = null; renderRuns();
+      picked = []; renderFiles(); clearResultOnly(); setStatus(""); current = null; renderHistory();
       setNav(false); mainContentEl.scrollTo({ top: 0, behavior: "smooth" }); dropEl.focus();
     });
     function clearResultOnly() { $("result").innerHTML = ""; }
 
-    // ---------- Run history ----------
-    let runs = []; let currentRunId = null;
-    try { runs = JSON.parse(sessionStorage.getItem("auditRuns") || "[]"); } catch { runs = []; }
-    function persistRuns() { try { sessionStorage.setItem("auditRuns", JSON.stringify(runs.slice(0, 12))); } catch {} }
-    function ago(ts) { const s = Math.round((Date.now() - ts) / 1000); if (s < 60) return "just now";
-      const m = Math.round(s / 60); if (m < 60) return m + " min ago"; const h = Math.round(m / 60);
-      if (h < 24) return h + "h ago"; return new Date(ts).toLocaleDateString(); }
-    const gapCount = (rep) => rep.missing.length + rep.deficient.length + rep.needs_review.length;
-
-    function renderRuns() {
+    // ---------- History (server-backed) ----------
+    async function loadHistory() {
+      try {
+        const list = await readJson(await fetch("/audits"));
+        history = Array.isArray(list) ? list : [];
+      } catch { history = []; }
+      renderHistory();
+    }
+    function renderHistory() {
       const wrap = $("runsList");
-      if (!runs.length) { wrap.innerHTML = '<div class="empty-hint" id="runsEmpty">No audits yet.</div>'; return; }
+      if (!history.length) { wrap.innerHTML = '<div class="empty-hint" id="runsEmpty">No audits yet.</div>'; return; }
       wrap.innerHTML = "";
-      runs.forEach(run => {
+      history.forEach(s => {
         const b = document.createElement("button"); b.className = "run"; b.setAttribute("role", "listitem");
-        if (run.id === currentRunId) b.setAttribute("aria-current", "true");
-        const gaps = gapCount(run.report);
-        const tag = document.createElement("span"); tag.className = "tag " + (run.report.is_clear ? "clear" : "gaps");
-        tag.style.fontSize = "10px"; tag.style.padding = "2px 7px"; tag.textContent = run.report.is_clear ? "CLEAR" : (gaps + " gap" + (gaps === 1 ? "" : "s"));
-        const files = document.createElement("span"); files.className = "files"; files.textContent = run.files.join(", ");
-        const when = document.createElement("span"); when.className = "when"; when.textContent = ago(run.at);
-        b.append(tag, files, when);
-        b.addEventListener("click", () => { showRun(run); setNav(false); });
+        if (current && s.packet_id === current.packet_id) b.setAttribute("aria-current", "true");
+        const gaps = s.missing + s.deficient + s.needs_review;
+        const tag = document.createElement("span"); tag.className = "tag " + (s.is_clear ? "clear" : "gaps");
+        tag.style.fontSize = "10px"; tag.style.padding = "2px 7px"; tag.textContent = s.is_clear ? "CLEAR" : (gaps + " gap" + (gaps === 1 ? "" : "s"));
+        const name = document.createElement("span"); name.className = "files"; name.textContent = s.checklist_name;
+        const when = document.createElement("span"); when.className = "when";
+        when.textContent = ago(toMs(s.created_at)) + (s.reviewed_count ? " · " + s.reviewed_count + " reviewed" : "");
+        b.append(tag, name, when);
+        b.addEventListener("click", () => openAudit(s.packet_id));
         wrap.appendChild(b);
       });
     }
-    function showRun(run) { currentRunId = run.id; renderReport(run); renderRuns(); $("result").scrollIntoView({ behavior: "smooth", block: "start" }); }
+    async function openAudit(packetId) {
+      setNav(false);
+      try {
+        const r = await fetch("/audits/" + encodeURIComponent(packetId));
+        const data = await readJson(r);
+        if (!r.ok) throw new Error(detailText(data) || ("Error " + r.status));
+        current = { packet_id: data.packet_id, checklist_name: data.checklist_name,
+          report: data.report, request: data.request_summary || "", at: toMs(data.created_at) };
+        renderReport(); renderHistory();
+        $("result").scrollIntoView({ behavior: "smooth", block: "start" });
+      } catch (e) { toast(e.message || "Could not open audit", "err"); }
+    }
+
+    // ---------- Review a finding ----------
+    async function reviewFinding(requirementId, action, status, note) {
+      if (!current) return;
+      try {
+        const r = await fetchTimeout("/audits/" + encodeURIComponent(current.packet_id)
+          + "/findings/" + encodeURIComponent(requirementId) + "/review",
+          { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action, status, note }) }, 30000);
+        const data = await readJson(r);
+        if (!r.ok) throw new Error(detailText(data) || ("Error " + r.status));
+        current = { packet_id: data.packet_id, checklist_name: data.checklist_name,
+          report: data.report, request: data.request_summary || "", at: current.at, files: current.files };
+        renderReport(); loadHistory();
+        toast(action === "accept" ? "Marked as reviewed" : "Verdict overridden");
+      } catch (e) { toast(e.message || "Review failed", "err"); }
+    }
 
     // ---------- Render report ----------
-    function renderReport(run) {
-      const rep = run.report, wrap = $("result"); wrap.innerHTML = "";
+    function renderReport() {
+      const rep = current.report, wrap = $("result"); wrap.innerHTML = "";
       const head = document.createElement("div"); head.className = "verdict";
       const tag = document.createElement("span"); tag.className = "tag " + (rep.is_clear ? "clear" : "gaps");
       tag.textContent = rep.is_clear ? "CLEAR" : "GAPS FOUND";
       const meta = document.createElement("span"); meta.className = "meta";
       const gaps = gapCount(rep);
-      meta.textContent = (rep.is_clear ? "Ready to file" : (gaps + " item" + (gaps === 1 ? "" : "s") + " need attention"))
-        + " · " + run.files.length + " file" + (run.files.length === 1 ? "" : "s") + " · " + ago(run.at);
+      const parts = [rep.is_clear ? "Ready to file" : (gaps + " item" + (gaps === 1 ? "" : "s") + " need attention")];
+      if (current.checklist_name) parts.push(current.checklist_name);
+      if (current.files && current.files.length) parts.push(current.files.length + " file" + (current.files.length === 1 ? "" : "s"));
+      parts.push(ago(current.at));
+      meta.textContent = parts.join(" · ");
       head.append(tag, meta);
 
-      if (run.request) {
+      if (current.request) {
         const actions = document.createElement("div"); actions.className = "actions no-print";
         actions.append(
-          mkBtn("Copy request", async () => { try { await navigator.clipboard.writeText(run.request); toast("Request copied"); } catch { toast("Copy failed", "err"); } }),
+          mkBtn("Copy request", async () => { try { await navigator.clipboard.writeText(current.request); toast("Request copied"); } catch { toast("Copy failed", "err"); } }),
           mkBtn("Download", () => {
-            const url = URL.createObjectURL(new Blob([run.request], { type: "text/markdown" }));
-            const a = document.createElement("a"); a.href = url; a.download = "audit-request-" + run.checklist + ".md";
+            const url = URL.createObjectURL(new Blob([current.request], { type: "text/markdown" }));
+            const a = document.createElement("a"); a.href = url; a.download = "audit-request.md";
             document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
           }),
           mkBtn("Print / PDF", () => window.print())
@@ -555,16 +613,17 @@
       });
     }
     function mkBtn(label, fn) { const b = document.createElement("button"); b.className = "btn btn-ghost btn-sm"; b.textContent = label; b.addEventListener("click", fn); return b; }
+
     function findingEl(f) {
       const el = document.createElement("details"); el.className = "finding";
-      const hasSrc = f.sources && f.sources.length;
-      if (!hasSrc) el.setAttribute("data-nosrc", "");
       const conf = Math.round((f.confidence || 0) * 100);
+      const reviewed = !!f.review;
       const sum = document.createElement("summary");
-      sum.innerHTML = '<span class="txt"></span><span class="conf">' + conf + '%</span>';
+      sum.innerHTML = '<span class="txt"></span>' + (reviewed ? '<span class="reviewed-mark no-print" title="Reviewed">✓</span>' : '') + '<span class="conf">' + conf + '%</span>';
       sum.querySelector(".txt").textContent = f.summary;
       el.appendChild(sum);
-      if (hasSrc) {
+
+      if (f.sources && f.sources.length) {
         const src = document.createElement("div"); src.className = "src";
         f.sources.forEach(s => {
           const line = document.createElement("span"); line.className = "cite";
@@ -574,7 +633,49 @@
         });
         el.appendChild(src);
       }
+      el.appendChild(reviewEl(f));
       return el;
+    }
+
+    function reviewEl(f) {
+      const box = document.createElement("div"); box.className = "review no-print";
+      const rev = f.review;
+      if (rev) {
+        const badge = document.createElement("span");
+        if (rev.action === "override") {
+          badge.className = "rev-badge overridden";
+          badge.textContent = "✎ Overridden";
+          const from = document.createElement("span"); from.className = "rev-machine";
+          from.textContent = "machine said " + (STATUS_LABEL[f.machine_status] || f.machine_status);
+          box.append(badge, from);
+        } else {
+          badge.className = "rev-badge accepted"; badge.textContent = "✓ Accepted"; box.append(badge);
+        }
+        if (rev.note) { const n = document.createElement("span"); n.className = "rev-note"; n.textContent = "“" + rev.note + "”"; box.append(n); }
+      }
+
+      const actions = document.createElement("div"); actions.className = "rev-actions";
+      const acceptBtn = mkBtn(rev && rev.action === "accept" ? "Accepted" : "Accept", () => reviewFinding(f.requirement_id, "accept", null, null));
+      if (rev && rev.action === "accept") acceptBtn.disabled = true;
+      const overrideBtn = mkBtn(rev ? "Change" : "Override", () => { form.hidden = !form.hidden; if (!form.hidden) form.querySelector("select").focus(); });
+      actions.append(acceptBtn, overrideBtn);
+      box.append(actions);
+
+      const form = document.createElement("div"); form.className = "rev-form"; form.hidden = true;
+      const sel = document.createElement("select"); sel.setAttribute("aria-label", "Corrected status");
+      STATUSES.filter(s => s !== f.machine_status).forEach(s => {
+        const o = document.createElement("option"); o.value = s; o.textContent = STATUS_LABEL[s];
+        if (f.review && f.review.action === "override" && f.review.status === s) o.selected = true;
+        sel.appendChild(o);
+      });
+      const note = document.createElement("input"); note.type = "text"; note.placeholder = "Why? (optional note)";
+      note.maxLength = 2000; if (f.review && f.review.note) note.value = f.review.note;
+      const save = mkBtn("Save", () => reviewFinding(f.requirement_id, "override", sel.value, note.value.trim() || null));
+      save.className = "btn btn-primary btn-sm";
+      const cancel = mkBtn("Cancel", () => { form.hidden = true; });
+      form.append(sel, note, save, cancel);
+      box.append(form);
+      return box;
     }
 
     // ---------- Readiness ----------
@@ -586,9 +687,8 @@
 
     // ---------- Init ----------
     renderFiles();
-    if (runs.length) { currentRunId = runs[0].id; renderReport(runs[0]); }
-    renderRuns();
     loadVerticals();
+    loadHistory();
     checkReadiness();
   </script>
 </body>
