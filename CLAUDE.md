@@ -76,7 +76,10 @@ Pure domain package `src/ragchat/audit/` — clean DAG, no I/O:
 
 Pipeline & surfaces:
 - `ingestion/router.py` — `route()` picks text path (wraps existing `extractors.py`) vs
-  multimodal path (scanned PDFs/images). No model calls; fully tested.
+  multimodal path. **Scanned PDFs are rasterized to PNG pages** (`pdf_to_png_pages`,
+  pypdfium2+Pillow, capped `max_scan_pages`) because only Gemini accepts an inline
+  `application/pdf` part — Mistral/Groq/OpenAI-compatible VLMs need `image/png`. Rasterize
+  failure falls back to the raw PDF (Gemini-only). No model calls; fully tested.
 - `rag/llm.py` — `build_vision_llm`, `build_document_message` (text or inline image parts).
 - `service.py` — `AuditService.audit_packet()` composes router→classify→extract→engine,
   enforces file cap before any model call, persists atomically (session-scoped).
@@ -430,3 +433,21 @@ Three related follow-ups on the fallback ladder:
   `describe_audit_ladder` non-secret snapshot, `/providers` HTTP, BYO-bypass parametrized over
   all three headers, and analyzer fall-over on `OutputParserException` + `ValidationError`.
   188 pass; ruff + mypy --strict clean. UI validated headless (Groq key → `X-Groq-Api-Key`).
+
+### Cross-provider scanned-PDF fix (2026-08-17) — live Mistral 422
+
+Live-testing the Mistral rung (`AUDIT_MODEL_ORDER=mistral`) surfaced a **422** from
+`api.mistral.ai`: *"Image content must be a URL or base64 image (data:image/...); received
+data:application/pdf..."*. Root cause: scanned PDFs took the multimodal path as a single
+`application/pdf` `image_url` part — **Gemini accepts inline PDFs, but Mistral/Groq/OpenAI-
+compatible VLMs only accept real image formats**, so every non-Gemini rung 422'd on a scan.
+(The earlier improved error surfacing is what made this legible instead of a generic 429.)
+
+Fix: `ingestion/extractors.pdf_to_png_pages` rasterizes a scanned PDF to PNG pages
+(**pypdfium2** — BSD, wheel-bundled binaries, *not* AGPL like PyMuPDF — + Pillow, both lazy)
+and the router now returns `image/png` MediaParts (capped at `max_scan_pages`, `scan_dpi`);
+PNG is accepted by *every* provider incl. Gemini, so one message works across the whole
+ladder. Rasterize failure falls back to the raw `application/pdf` part (Gemini-only) so the
+audit still runs on the primary. Deps add `pypdfium2`/`pillow` (+ mypy overrides). Tests:
+real blank PDF → N `image/png` parts, page cap, corrupt-PDF fallback. 191 pass; ruff + mypy
+clean. **Digital (text-layer) PDFs are unaffected** — they still take the cheap text path.
