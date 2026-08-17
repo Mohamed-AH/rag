@@ -63,9 +63,10 @@ Pure domain package `src/ragchat/audit/` — clean DAG, no I/O:
   `select_models(content)` callable returning an **ordered fallback ladder**; retries the
   next provider on quota/rate/transient errors (`_is_retryable`).
 - `../rag/providers.py` — `build_audit_ladder(settings, *, google_key)` builds `(text, vision)`
-  ordered model ladders from `AUDIT_MODEL_ORDER` (`gemini,mistral,groq,openai_compat`); a rung
-  is included only if its key/URL is set; providers imported **lazily**; BYO Google key →
-  Gemini-only. `is_retryable_provider_error` is the provider-agnostic fail-over predicate.
+  ordered model ladders from `AUDIT_MODEL_ORDER` (default `gemini,mistral,groq`; `openai_compat`
+  supported but off by default); a rung is included only if its key/URL is set; providers
+  imported **lazily**; BYO Google key → Gemini-only. Groq text = `openai/gpt-oss-120b`
+  (text-only), Groq scans = Llama-4 Scout. `is_retryable_provider_error` is the fail-over predicate.
 
 Pipeline & surfaces:
 - `ingestion/router.py` — `route()` picks text path (wraps existing `extractors.py`) vs
@@ -381,10 +382,12 @@ model-layer change, because the analyzer already consumed any LangChain chat mod
   quota/rate/transient error (`_is_retryable`, string/type match — no SDK exception import) it
   falls through to the next, else the error propagates (a real bug isn't masked). `service.
   build_audit_service` builds the ladder and picks text vs vision by `content.mode`.
-- **Providers chosen** (all free-tier, multimodal): Mistral (Small + Pixtral), Groq (Llama-3.3
-  + Llama-4 vision), and a generic **`openai_compat`** rung → point at OpenRouter for a free
-  **Qwen2.5-VL** (strong open document model). Grok (xAI) is paid, but drops into
-  `openai_compat` by config if credits ever exist. No self-hosting (out of budget).
+- **Providers chosen** (all free-tier): default ladder is **`gemini,mistral,groq`** — Mistral
+  (Small + Pixtral) and Groq (**gpt-oss-120b** text + Llama-4 Scout vision; gpt-oss is
+  text-only so the scan model is separate). The generic **`openai_compat`** rung (→ OpenRouter
+  for a free Qwen2.5-VL, or xAI Grok if paid credits ever exist) is supported but **off by
+  default** per the operator — add `openai_compat` to `AUDIT_MODEL_ORDER` + set its key/URL to
+  enable. No self-hosting (out of budget).
 - **Config** — `audit_model_order` + optional `mistral_/groq_/openai_compat_*` keys+model ids
   (all `SecretStr|None`, absent = rung disabled). Model ids env-tunable because free model
   names churn. `render.yaml` adds the keys as dashboard secrets; deps add

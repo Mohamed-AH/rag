@@ -107,10 +107,11 @@ class Settings(BaseSettings):
     # Order and model ids are env-tunable so a churned free model can be swapped without a
     # redeploy. All fallbacks are OpenAI/LangChain-compatible and multimodal-capable.
     audit_model_order: str = Field(
-        default="gemini,mistral,groq,openai_compat",
+        default="gemini,mistral,groq",
         description="Comma-separated provider ids forming the audit fallback ladder, primary "
         "first. Providers without a configured key/URL are skipped. Ids: gemini, mistral, "
-        "groq, openai_compat.",
+        "groq, openai_compat (openai_compat is available but off by default — add it to the "
+        "order and set its key/URL to enable, e.g. an OpenRouter endpoint).",
     )
     mistral_api_key: SecretStr | None = Field(
         default=None, description="API key for Mistral (free tier). Enables the mistral rung."
@@ -120,7 +121,9 @@ class Settings(BaseSettings):
     groq_api_key: SecretStr | None = Field(
         default=None, description="API key for Groq (free tier). Enables the groq rung."
     )
-    groq_model: str = Field(default="llama-3.3-70b-versatile")
+    # gpt-oss-120b is a strong text reasoning model on Groq's free tier, but text-only, so
+    # the scan path keeps a separate multimodal Groq model (Llama-4 Scout).
+    groq_model: str = Field(default="openai/gpt-oss-120b")
     groq_vision_model: str = Field(default="meta-llama/llama-4-scout-17b-16e-instruct")
     openai_compat_api_key: SecretStr | None = Field(
         default=None,
