@@ -14,6 +14,11 @@ Built on **Google Gemini** (single-pass multimodal classify-and-extract), a pure
 retrieval-augmented Q&A service (see [Ask](#ask-the-secondary-flow) below), which
 survives as a secondary feature.
 
+**▶ Live demo: <https://askyourdoc-ulfq.onrender.com/>** — pick a vertical, drop a packet,
+read the Gap Report. Need documents to try it on? Generate sample packets at
+<https://testsampledocs.netlify.app>. (Free hosting sleeps when idle, so the first request
+may take a moment to wake.)
+
 [![CI](https://github.com/Mohamed-AH/postgresslangchainchat/actions/workflows/ci.yml/badge.svg)](https://github.com/Mohamed-AH/postgresslangchainchat/actions/workflows/ci.yml)
 ![Python](https://img.shields.io/badge/python-3.11+-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
