@@ -4,6 +4,10 @@ Ready-made sample documents for exercising the audit, **one folder per vertical*
 vertical ships the same consistent packet in three forms so you can hit every intake path,
 and a generator script to (re)create or tweak them.
 
+> Prefer a browser? The companion generator at <https://testsampledocs.netlify.app> builds
+> downloadable sample packets on the fly — handy for trying the [live demo](https://askyourdoc-ulfq.onrender.com/)
+> without cloning the repo.
+
 ```
 samples/
 ├── customs/                     # vertical: "customs" (manifests/customs.yaml)
