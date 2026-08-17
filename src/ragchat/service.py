@@ -468,17 +468,20 @@ def _serialize_fields(fields: dict[str, ExtractedField]) -> dict[str, Any] | Non
 
 
 def build_audit_service(
-    session_id: str, *, google_key: str | None = None, checklist_id: str | None = None
+    session_id: str,
+    *,
+    byo_keys: dict[str, str] | None = None,
+    checklist_id: str | None = None,
 ) -> AuditService:
     """Wire a fully configured, session-scoped :class:`AuditService`.
 
-    The audit path needs only chat models (no embeddings / pgvector). ``google_key``, when
-    supplied, is a bring-your-own key: the ladder is Gemini-only on that key (no fallback to
-    the operator's other providers). Otherwise a **fallback ladder** is built from
-    ``AUDIT_MODEL_ORDER`` (Gemini primary, then any configured Mistral/Groq/OpenAI-compatible
-    rung), so an exhausted free quota fails over instead of failing the audit. ``checklist_id``
-    selects the vertical manifest (default ``active_checklist``); an unknown id raises
-    :class:`~ragchat.errors.UnknownChecklistError`.
+    The audit path needs only chat models (no embeddings / pgvector). ``byo_keys`` maps a
+    provider id (``gemini``/``mistral``/``groq``) to a caller-supplied key: the ladder is then
+    restricted to those providers on the caller's own quota (no fallback to the operator's
+    keys). Otherwise a **fallback ladder** is built from ``AUDIT_MODEL_ORDER`` (Gemini primary,
+    then any configured Mistral/Groq/OpenAI-compatible rung), so an exhausted free quota fails
+    over instead of failing the audit. ``checklist_id`` selects the vertical manifest (default
+    ``active_checklist``); an unknown id raises :class:`~ragchat.errors.UnknownChecklistError`.
     """
     from ragchat.audit.analyzer import StructuredAnalyzer
     from ragchat.audit.manifest import get_checklist
@@ -491,7 +494,7 @@ def build_audit_service(
     # An ordered ladder per path: text-path files use the text ladder (cheaper, higher-quota
     # models first), scans use the multimodal ladder. Retries are bounded so a quota/rate
     # error fails fast to the next provider instead of tying up a worker.
-    text_models, vision_models = build_audit_ladder(settings, google_key=google_key, max_retries=2)
+    text_models, vision_models = build_audit_ladder(settings, byo_keys=byo_keys, max_retries=2)
     if not text_models:  # misconfigured AUDIT_MODEL_ORDER with no available provider
         raise RuntimeError("no audit model providers are configured (check AUDIT_MODEL_ORDER)")
     vision_models = vision_models or text_models

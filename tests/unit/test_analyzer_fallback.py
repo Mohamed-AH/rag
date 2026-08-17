@@ -68,10 +68,33 @@ def test_fails_over_on_quota_error() -> None:
 
 
 def test_non_retryable_error_propagates_without_fallback() -> None:
-    primary = _FakeModel(exc=ValueError("schema validation failed"))
+    primary = _FakeModel(exc=ValueError("bad code path"))  # our own bug, not a model failure
     secondary = _good()
-    with pytest.raises(ValueError, match="schema validation failed"):
+    with pytest.raises(ValueError, match="bad code path"):
         _analyzer([primary, secondary]).analyze("invoice.txt", _content(), CUSTOMS_CHECKLIST)
+
+
+def test_output_parser_exception_falls_over() -> None:
+    # A weak model returning unparseable output should fall over to a stronger rung.
+    from langchain_core.exceptions import OutputParserException
+
+    primary = _FakeModel(exc=OutputParserException("could not parse model output"))
+    out = _analyzer([primary, _good()]).analyze("invoice.txt", _content(), CUSTOMS_CHECKLIST)
+    assert [d.doc_type for d in out] == ["commercial_invoice"]
+
+
+def test_schema_validation_error_falls_over() -> None:
+    # A malformed structured output raises pydantic ValidationError -> try the next provider.
+    from pydantic import ValidationError
+
+    try:
+        _AnalysisResult.model_validate({"documents": "not-a-list"})
+        raise AssertionError("expected a ValidationError")
+    except ValidationError as verr:
+        bad = _FakeModel(exc=verr)
+
+    out = _analyzer([bad, _good()]).analyze("invoice.txt", _content(), CUSTOMS_CHECKLIST)
+    assert [d.doc_type for d in out] == ["commercial_invoice"]
 
 
 def test_last_provider_error_propagates() -> None:

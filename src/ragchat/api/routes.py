@@ -34,6 +34,7 @@ from ragchat.api.schemas import (
     GapReportSchema,
     HealthResponse,
     IngestResponse,
+    ProviderStatus,
     ReviewRequest,
     SourceSchema,
     StoredAuditSchema,
@@ -69,6 +70,13 @@ _VALID_SESSION_ID = re.compile(r"^[0-9a-f]{32}$")
 # Bring-your-own-keys are sent per request in these headers and never stored server-side.
 COHERE_KEY_HEADER = "X-Cohere-Api-Key"
 GOOGLE_KEY_HEADER = "X-Google-Api-Key"
+# Audit BYO: a caller may supply a key for any of the three audit providers, spending their
+# own quota. Header -> provider id used to build the ladder.
+_AUDIT_KEY_HEADERS: dict[str, str] = {
+    "X-Google-Api-Key": "gemini",
+    "X-Mistral-Api-Key": "mistral",
+    "X-Groq-Api-Key": "groq",
+}
 
 
 def get_session_id(request: Request, response: Response) -> str:
@@ -95,13 +103,19 @@ def _byo_keys(request: Request) -> tuple[str | None, str | None]:
     return None, None
 
 
-def _byo_google_key(request: Request) -> str | None:
-    """Extract a bring-your-own Google key alone.
+def _byo_audit_keys(request: Request) -> dict[str, str]:
+    """Extract any bring-your-own audit keys from headers → ``{provider_id: key}``.
 
-    The audit path uses only Gemini (no Cohere embeddings), so a caller can supply just
-    their Google key to run on their own quota — unlike ``/ask``, which needs both.
+    The audit path uses only chat models (no Cohere embeddings), so a caller can supply a key
+    for any of the three providers (Gemini/Mistral/Groq) to run on their own quota. Keys are
+    read per request and never stored or logged.
     """
-    return (request.headers.get(GOOGLE_KEY_HEADER) or "").strip() or None
+    keys: dict[str, str] = {}
+    for header, provider in _AUDIT_KEY_HEADERS.items():
+        value = (request.headers.get(header) or "").strip()
+        if value:
+            keys[provider] = value
+    return keys
 
 
 def get_service(request: Request, session_id: str = Depends(get_session_id)) -> RAGService:
@@ -125,7 +139,7 @@ def get_audit_service(
     """
     try:
         return build_audit_service(
-            session_id, google_key=_byo_google_key(request), checklist_id=checklist_id
+            session_id, byo_keys=_byo_audit_keys(request), checklist_id=checklist_id
         )
     except UnknownChecklistError as exc:
         raise HTTPException(
@@ -284,13 +298,13 @@ def guard_audit(
 ) -> None:
     """Guard the audit endpoint: IP-keyed burst limit + durable daily allowance/budget.
 
-    A bring-your-own **Google** key bypasses every shared-key limit (audit needs only
-    Gemini, so a Google-only key suffices to spend one's own quota). Otherwise the limits
-    are keyed on the **hashed client IP**, not the client-set session cookie — an audit is
-    one model call per file, the most expensive path, so it must not be evadable by simply
-    dropping the cookie to mint a fresh session. Counters are durable (survive restarts).
+    A bring-your-own key for **any** audit provider bypasses every shared-key limit (the
+    caller spends their own quota). Otherwise the limits are keyed on the **hashed client
+    IP**, not the client-set session cookie — an audit is one model call per file, the most
+    expensive path, so it must not be evadable by simply dropping the cookie to mint a fresh
+    session. Counters are durable (survive restarts).
     """
-    if _byo_google_key(request):
+    if _byo_audit_keys(request):
         return
 
     guards = _get_guards(request)
@@ -425,6 +439,16 @@ def list_checklists() -> list[ChecklistOption]:
     from ragchat.audit.manifest import available_checklists, get_checklist
 
     return [ChecklistOption(id=cid, name=get_checklist(cid).name) for cid in available_checklists()]
+
+
+@router.get("/providers", response_model=list[ProviderStatus], tags=["ops"])
+def list_providers() -> list[ProviderStatus]:
+    """Diagnostic: the audit fallback ladder as configured — which rungs are active and the
+    resolved model ids. Reports no secrets (only whether each provider's key is present)."""
+    from ragchat.config import get_settings
+    from ragchat.rag.providers import describe_audit_ladder
+
+    return [ProviderStatus(**rung) for rung in describe_audit_ladder(get_settings())]
 
 
 @router.post(

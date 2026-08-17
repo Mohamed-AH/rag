@@ -289,14 +289,23 @@
             <span aria-hidden="true">Keys ＋</span>
           </summary>
           <div class="keys-body">
-            <label class="visually-hidden" for="googleKey">Google Gemini API key</label>
-            <input id="googleKey" type="password" autocomplete="off" placeholder="Google Gemini API key (AIza…)" />
+            <label class="visually-hidden" for="keyProvider">Provider</label>
+            <select id="keyProvider" aria-label="API key provider">
+              <option value="gemini">Google Gemini</option>
+              <option value="mistral">Mistral</option>
+              <option value="groq">Groq</option>
+            </select>
+            <label class="visually-hidden" for="byoKey">API key</label>
+            <input id="byoKey" type="password" autocomplete="off" placeholder="Paste your API key" />
             <div style="display:flex; gap:8px;">
               <button class="btn btn-primary btn-sm" id="saveKey" style="flex:1;">Use my key</button>
               <button class="btn btn-ghost btn-sm" id="clearKey">Clear</button>
             </div>
-            <div class="keys-help">Used only for your requests and <strong>never stored on the server</strong>. Get one from
-              <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">Google AI Studio</a>.</div>
+            <div class="keys-help">Used only for your requests and <strong>never stored on the server</strong>.
+              Bring a key for any provider in the fallback ladder:
+              <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">Gemini</a>,
+              <a href="https://console.mistral.ai/api-keys" target="_blank" rel="noopener">Mistral</a>, or
+              <a href="https://console.groq.com/keys" target="_blank" rel="noopener">Groq</a>.</div>
           </div>
         </details>
         <div class="side-credit">FastAPI · Gemini · <a href="/docs">API</a> · <a href="https://testsampledocs.netlify.app" target="_blank" rel="noopener">Sample docs</a></div>
@@ -408,23 +417,36 @@
       try { return await fetch(url, { ...opts, signal: c.signal }); } finally { clearTimeout(id); }
     }
 
-    // ---------- BYO Google key (audit path is Gemini-only) ----------
-    const byo = { google: sessionStorage.getItem("googleKey") || "" };
-    const authHeaders = () => byo.google ? { "X-Google-Api-Key": byo.google } : {};
+    // ---------- BYO key (any of the three audit providers, spends the caller's own quota) ----------
+    const PROVIDERS = {
+      gemini: { label: "Google Gemini", header: "X-Google-Api-Key" },
+      mistral: { label: "Mistral", header: "X-Mistral-Api-Key" },
+      groq: { label: "Groq", header: "X-Groq-Api-Key" },
+    };
+    const byo = {
+      provider: sessionStorage.getItem("byoProvider") || "gemini",
+      key: sessionStorage.getItem("byoKey") || "",
+    };
+    if (!PROVIDERS[byo.provider]) byo.provider = "gemini";
+    const authHeaders = () => (byo.key ? { [PROVIDERS[byo.provider].header]: byo.key } : {});
     function refreshKeyMode() {
       const pill = $("keyMode");
-      $("googleKey").value = byo.google;
-      if (byo.google) { pill.textContent = "your Google key"; pill.classList.add("own"); }
+      $("keyProvider").value = byo.provider;
+      $("byoKey").value = byo.key;
+      if (byo.key) { pill.textContent = "your " + PROVIDERS[byo.provider].label + " key"; pill.classList.add("own"); }
       else { pill.textContent = "shared demo key"; pill.classList.remove("own"); }
       pill.prepend(Object.assign(document.createElement("span"), { className: "d" }));
     }
+    $("keyProvider").addEventListener("change", () => { byo.provider = $("keyProvider").value; });
     $("saveKey").addEventListener("click", () => {
-      byo.google = $("googleKey").value.trim();
-      if (!byo.google) { sessionStorage.removeItem("googleKey"); toast("Cleared — using shared key"); }
-      else { sessionStorage.setItem("googleKey", byo.google); toast("Now using your Google key"); }
+      byo.provider = $("keyProvider").value;
+      byo.key = $("byoKey").value.trim();
+      sessionStorage.setItem("byoProvider", byo.provider);
+      if (!byo.key) { sessionStorage.removeItem("byoKey"); toast("Cleared — using shared key"); }
+      else { sessionStorage.setItem("byoKey", byo.key); toast("Now using your " + PROVIDERS[byo.provider].label + " key"); }
       refreshKeyMode();
     });
-    $("clearKey").addEventListener("click", () => { byo.google = ""; sessionStorage.removeItem("googleKey"); refreshKeyMode(); toast("Using shared key"); });
+    $("clearKey").addEventListener("click", () => { byo.key = ""; sessionStorage.removeItem("byoKey"); refreshKeyMode(); toast("Using shared key"); });
     refreshKeyMode();
 
     // ---------- Verticals ----------
@@ -500,7 +522,7 @@
         $("result").scrollIntoView({ behavior: "smooth", block: "start" });
       } catch (e) {
         const msg = e.name === "AbortError"
-          ? "Timed out (>150s). The instance may be waking or the shared quota is spent — retry, or add your own Google key."
+          ? "Timed out (>150s). The instance may be waking or the shared quota is spent — retry, or add your own API key."
           : e.message;
         setStatus("✕ " + esc(msg), "err");
       } finally { auditBtn.disabled = picked.length === 0; }

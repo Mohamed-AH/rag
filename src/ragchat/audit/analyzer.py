@@ -20,7 +20,8 @@ import logging
 from collections.abc import Callable
 from typing import Any, Protocol
 
-from pydantic import BaseModel, Field
+from langchain_core.exceptions import OutputParserException
+from pydantic import BaseModel, Field, ValidationError
 
 from ragchat.audit.checklist import Checklist, FieldSpec
 from ragchat.audit.evidence import ClassifiedDocument, ExtractedField
@@ -33,8 +34,7 @@ _UNKNOWN = "unknown"
 
 # Substrings marking a provider failure worth retrying on the next rung of the ladder
 # (quota/rate limits, transient upstream errors). Matched against the exception's type name
-# + message; a non-matching error is not retried, so a real bug surfaces instead of silently
-# burning every provider. Kept here (not imported) so the audit package stays self-contained.
+# + message. Kept here (not imported) so the audit package stays self-contained.
 _RETRYABLE_MARKERS: tuple[str, ...] = (
     "resource_exhausted",
     "quota",
@@ -55,6 +55,17 @@ _RETRYABLE_MARKERS: tuple[str, ...] = (
 
 
 def _is_retryable(exc: BaseException) -> bool:
+    """Whether to fall over to the next rung.
+
+    Two failure classes fail over — both mean "this provider couldn't deliver, a stronger one
+    might": (1) quota/rate/transient errors, and (2) a **malformed structured output** — a weak
+    model returning JSON that doesn't satisfy the schema raises `ValidationError` /
+    `OutputParserException` from `.with_structured_output(...)`, and the right move is to try
+    the next model, not fail the audit. A genuine error in our own logic (a different
+    exception type with no retryable marker) still propagates, so real bugs aren't masked.
+    """
+    if isinstance(exc, ValidationError | OutputParserException):
+        return True
     blob = f"{type(exc).__name__} {exc}".lower()
     return any(marker in blob for marker in _RETRYABLE_MARKERS)
 

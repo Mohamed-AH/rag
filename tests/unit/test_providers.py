@@ -70,22 +70,50 @@ def test_vision_ladder_drops_non_multimodal_providers() -> None:
     assert vision == ["gemini:vision"]  # scan path drops the text-only provider
 
 
-def test_byo_google_key_builds_gemini_only(monkeypatch: pytest.MonkeyPatch) -> None:
-    # A bring-your-own key must NOT spill onto the operator's other providers.
-    import ragchat.rag.llm as llm_mod
+def _real_settings(order: str = "gemini,mistral,groq", **overrides: Any) -> Any:
+    """A real Settings (needed for the BYO path's ``model_copy`` overlay)."""
+    from ragchat.config import Settings
 
-    monkeypatch.setattr(
-        llm_mod, "build_llm", lambda s, google_key=None, max_retries=None: f"g-text:{google_key}"
+    kw: dict[str, Any] = {
+        "database_url": "postgresql://u:p@localhost:5432/db",  # validated only, never connected
+        "cohere_api_key": "c",
+        "google_api_key": "g",
+        "audit_model_order": order,
+    }
+    kw.update(overrides)
+    return Settings(**kw)
+
+
+def _field_prov(pid: str) -> _Provider:
+    """A fake provider whose availability keys off the real Settings key field (for BYO)."""
+    fld = {"gemini": "google_api_key", "mistral": "mistral_api_key", "groq": "groq_api_key"}[pid]
+    return _Provider(
+        id=pid,
+        multimodal=True,
+        available=lambda s, f=fld: getattr(s, f) is not None,
+        build_text=lambda s, r, p=pid: f"{p}:text",
+        build_vision=lambda s, r, p=pid: f"{p}:vision",
     )
-    monkeypatch.setattr(
-        llm_mod,
-        "build_vision_llm",
-        lambda s, google_key=None, max_retries=None: f"g-vision:{google_key}",
+
+
+_BYO_REGISTRY = {pid: _field_prov(pid) for pid in ("gemini", "mistral", "groq")}
+
+
+def test_byo_restricts_to_the_supplied_provider() -> None:
+    # Operator has only Gemini configured, but a BYO Groq key yields a Groq-only ladder on the
+    # caller's key — the operator's Gemini is never used.
+    settings = _real_settings()
+    text, vision = build_audit_ladder(settings, byo_keys={"groq": "gk"}, registry=_BYO_REGISTRY)
+    assert text == ["groq:text"]
+    assert vision == ["groq:vision"]
+
+
+def test_byo_multiple_keys_follow_configured_order() -> None:
+    settings = _real_settings(order="gemini,mistral,groq")
+    text, _vision = build_audit_ladder(
+        settings, byo_keys={"groq": "g", "mistral": "m"}, registry=_BYO_REGISTRY
     )
-    settings = _settings("gemini,mistral,groq", has_gemini=True, has_mistral=True, has_groq=True)
-    text, vision = build_audit_ladder(settings, google_key="BYO", registry=_REGISTRY)
-    assert text == ["g-text:BYO"]
-    assert vision == ["g-vision:BYO"]
+    assert text == ["mistral:text", "groq:text"]  # AUDIT_MODEL_ORDER order, operator Gemini absent
 
 
 def test_real_registry_capability_flags() -> None:
@@ -95,6 +123,23 @@ def test_real_registry_capability_flags() -> None:
     assert _REGISTRY["gemini"].multimodal is True
     assert _REGISTRY["mistral"].multimodal is True
     assert _REGISTRY["groq"].multimodal is True
+
+
+def test_describe_audit_ladder_is_non_secret_snapshot() -> None:
+    from ragchat.rag.providers import describe_audit_ladder
+
+    # groq key set, mistral unset; over the real registry.
+    settings = _real_settings(order="gemini,mistral,groq,bogus", groq_api_key="gk")
+    by_id = {r["id"]: r for r in describe_audit_ladder(settings)}
+
+    assert by_id["gemini"]["configured"] is True
+    assert by_id["gemini"]["text_model"] == settings.llm_model
+    assert by_id["groq"]["configured"] is True  # key present
+    assert by_id["groq"]["vision_model"] == settings.groq_vision_model
+    assert by_id["mistral"]["configured"] is False  # no key
+    assert by_id["bogus"]["known"] is False
+    # No secret ever leaks — only the boolean and model ids are reported.
+    assert "gk" not in str(by_id)
 
 
 @pytest.mark.parametrize(

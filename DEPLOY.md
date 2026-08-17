@@ -112,8 +112,15 @@ variable — no redeploy.
 > this against your data-handling obligations; it is off by default, keeping audits on
 > Google/Mistral/Groq unless you explicitly enable it.
 
-A **bring-your-own Google key** (`X-Google-Api-Key`) runs Gemini-only with no fallback — a
-BYO user spends their own quota and never the operator's other-provider keys.
+**Bring-your-own key for any of the three providers.** A caller may send a key for Gemini
+(`X-Google-Api-Key`), Mistral (`X-Mistral-Api-Key`), or Groq (`X-Groq-Api-Key`). The ladder
+is then restricted to the provider(s) they supplied, built on **their** key — the operator's
+other-provider keys are never used. Any BYO audit key also bypasses the shared-key limits
+(they're spending their own quota). Keys are read per request and never stored or logged.
+
+**`GET /providers`** is a non-secret diagnostic: it lists each rung in `AUDIT_MODEL_ORDER`
+with whether its key is configured (the boolean only) and the resolved text/scan model ids —
+handy for confirming your env overrides and the active ladder right after deploy.
 
 ## Usage limits & bring-your-own-keys
 
@@ -129,9 +136,9 @@ provider free tier no matter what.
 has its own guard: a per-user daily allowance (`DAILY_AUDIT_FREE_ALLOWANCE`) and an
 instance-wide ceiling (`DAILY_AUDIT_BUDGET`), both keyed on the **salted-hashed client IP**
 rather than the session cookie — so a visitor can't reset their allowance just by dropping
-the cookie to mint a fresh session. A Google-only BYO key (`X-Google-Api-Key`) bypasses both
-(the audit path needs no Cohere key). Exceeding the per-user allowance returns a `429` the UI
-turns into an own-key prompt; exceeding the instance ceiling returns a plain `429`.
+the cookie to mint a fresh session. A BYO key for any audit provider (Gemini/Mistral/Groq)
+bypasses both. Exceeding the per-user allowance returns a `429` the UI turns into an own-key
+prompt; exceeding the instance ceiling returns a plain `429`.
 
 ## Caveats (by design, for a free demo)
 

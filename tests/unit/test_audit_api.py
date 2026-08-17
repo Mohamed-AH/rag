@@ -164,13 +164,38 @@ def test_audit_instance_budget_caps_everyone(
     assert "daily audit budget" in resp.json()["detail"].lower()
 
 
-def test_byo_google_key_bypasses_audit_limits(
-    session_factory: Callable[[], Session],
+@pytest.mark.parametrize("header", ["X-Google-Api-Key", "X-Mistral-Api-Key", "X-Groq-Api-Key"])
+def test_byo_key_for_any_provider_bypasses_audit_limits(
+    session_factory: Callable[[], Session], header: str
 ) -> None:
     app = _audit_app(session_factory, allowance=1, budget=0)
     client = TestClient(app)
     assert client.post("/audit", files=_one_file()).status_code == 200
     assert client.post("/audit", files=_one_file()).status_code == 429  # shared-key limit hit
-    # A bring-your-own Google key spends the caller's own quota — no shared-key limit.
-    resp = client.post("/audit", files=_one_file(), headers={"X-Google-Api-Key": "AIza-test"})
+    # A bring-your-own key for any of the three providers spends the caller's own quota.
+    resp = client.post("/audit", files=_one_file(), headers={header: "byo-test-key"})
     assert resp.status_code == 200
+
+
+def test_providers_endpoint_reports_ladder(monkeypatch: pytest.MonkeyPatch) -> None:
+    import ragchat.config as config_mod
+    from ragchat.api.app import create_app
+    from ragchat.config import Settings
+
+    settings = Settings(
+        database_url="postgresql://u:p@localhost:5432/db",
+        cohere_api_key="c",
+        google_api_key="g",
+        audit_model_order="gemini,groq,bogus",
+        groq_api_key="gk",
+    )
+    monkeypatch.setattr(config_mod, "get_settings", lambda: settings)
+
+    resp = TestClient(create_app()).get("/providers")
+    assert resp.status_code == 200
+    by_id = {r["id"]: r for r in resp.json()}
+    assert by_id["gemini"]["configured"] is True
+    assert by_id["groq"]["configured"] is True  # key present
+    assert by_id["groq"]["vision_model"] == settings.groq_vision_model
+    assert by_id["bogus"]["known"] is False
+    assert "gk" not in resp.text  # the endpoint never leaks the key

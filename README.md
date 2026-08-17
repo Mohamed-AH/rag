@@ -134,8 +134,8 @@ both `LLM_MODEL` (text path) and `VISION_MODEL` (scans) default to
 `gemini-flash-lite-latest` — Flash-Lite is natively multimodal, so one generous free tier
 reads both. Tune `MAX_FILES_PER_PACKET` and `ACTIVE_CHECKLIST`. It's multi-tenant
 (per-session isolation) with upload caps and per-session rate limits; visitors can supply
-their **own** Google key via the `X-Google-Api-Key` header, used per request and never
-stored.
+their **own** key for any of the three providers (`X-Google-Api-Key` / `X-Mistral-Api-Key` /
+`X-Groq-Api-Key`), used per request and never stored.
 
 **Model fallback ladder.** So a busy day doesn't die when Gemini's free quota runs out, the
 audit fails over to the next provider in `AUDIT_MODEL_ORDER` (default
@@ -155,6 +155,7 @@ See [DEPLOY.md](DEPLOY.md#audit-model-fallback-ladder).
 |--------|-----------------|-------------|
 | GET    | `/health`       | Readiness probe — `SELECT 1`; **503** if the DB is unreachable |
 | GET    | `/checklists`   | Available audit verticals (`id` + display name) for the picker |
+| GET    | `/providers`    | Diagnostic: the audit fallback ladder — which rungs are configured + resolved model ids (no secrets) |
 | POST   | `/audit`        | multipart upload of the packet (+ optional `checklist_id`) → Gap Report + rendered missing-items request |
 | GET    | `/audits`       | This session's audit history (newest first) with effective, post-review counts |
 | GET    | `/audits/{id}`  | Re-open a past audit with reviewer decisions applied |

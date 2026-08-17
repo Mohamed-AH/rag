@@ -22,10 +22,21 @@ importable for the retry logic to work.
 from __future__ import annotations
 
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
+from pydantic import SecretStr
+
 from ragchat.config import Settings
+
+# Which Settings field holds each provider's key — used to overlay a caller's bring-your-own
+# key onto a copy of the settings so the ladder builds on the caller's quota, not the
+# operator's. Only these three providers are offered for BYO (openai_compat is operator-only).
+_BYO_KEY_FIELD: dict[str, str] = {
+    "gemini": "google_api_key",
+    "mistral": "mistral_api_key",
+    "groq": "groq_api_key",
+}
 
 # Substrings (matched against the exception's type name + message, lower-cased) that mark a
 # failure worth retrying on the next provider: quota/rate limits and transient upstream
@@ -56,6 +67,10 @@ def is_retryable_provider_error(exc: BaseException) -> bool:
     return any(marker in blob for marker in _RETRYABLE_MARKERS)
 
 
+def _no_models(settings: Settings) -> dict[str, str | None]:
+    return {"text": None, "vision": None}
+
+
 @dataclass(frozen=True)
 class _Provider:
     """One rung of the ladder: how to tell if it's configured, and how to build its models."""
@@ -65,6 +80,8 @@ class _Provider:
     available: Callable[[Settings], bool]
     build_text: Callable[[Settings, int | None], Any]
     build_vision: Callable[[Settings, int | None], Any]
+    # Non-secret model ids this rung would use, for the /providers diagnostic (no keys).
+    describe: Callable[[Settings], dict[str, str | None]] = field(default=_no_models)
 
 
 def _retry_kwargs(max_retries: int | None) -> dict[str, int]:
@@ -130,6 +147,7 @@ _REGISTRY: dict[str, _Provider] = {
         available=lambda s: True,  # google_api_key is required config, so Gemini is always up
         build_text=_build_gemini_text,
         build_vision=_build_gemini_vision,
+        describe=lambda s: {"text": s.llm_model, "vision": s.vision_model},
     ),
     "mistral": _Provider(
         id="mistral",
@@ -137,6 +155,7 @@ _REGISTRY: dict[str, _Provider] = {
         available=lambda s: s.mistral_api_key is not None,
         build_text=lambda s, r: _build_mistral(s, s.mistral_model, r),
         build_vision=lambda s, r: _build_mistral(s, s.mistral_model, r),
+        describe=lambda s: {"text": s.mistral_model, "vision": s.mistral_model},
     ),
     "groq": _Provider(
         id="groq",
@@ -144,6 +163,7 @@ _REGISTRY: dict[str, _Provider] = {
         available=lambda s: s.groq_api_key is not None,
         build_text=lambda s, r: _build_groq(s, s.groq_model, r),
         build_vision=lambda s, r: _build_groq(s, s.groq_vision_model, r),
+        describe=lambda s: {"text": s.groq_model, "vision": s.groq_vision_model},
     ),
     "openai_compat": _Provider(
         id="openai_compat",
@@ -151,35 +171,50 @@ _REGISTRY: dict[str, _Provider] = {
         available=lambda s: s.openai_compat_api_key is not None and bool(s.openai_compat_base_url),
         build_text=lambda s, r: _build_openai_compat(s, r),
         build_vision=lambda s, r: _build_openai_compat(s, r),
+        describe=lambda s: {"text": s.openai_compat_model, "vision": s.openai_compat_model},
     ),
 }
+
+
+def _order(settings: Settings) -> list[str]:
+    return [pid.strip() for pid in settings.audit_model_order.split(",") if pid.strip()]
 
 
 def build_audit_ladder(
     settings: Settings,
     *,
-    google_key: str | None = None,
+    byo_keys: dict[str, str] | None = None,
     max_retries: int | None = 2,
     registry: dict[str, _Provider] | None = None,
 ) -> tuple[list[Any], list[Any]]:
     """Build ``(text_models, vision_models)`` — the ordered fallback ladders for the audit.
 
-    A **bring-your-own Google key** builds a Gemini-only ladder with no fallback: the caller
-    asked to spend *their* quota, so we must not spill onto the operator's other-provider
-    keys. Otherwise the ladder follows ``settings.audit_model_order``, including only
-    providers whose keys/URL are configured; the vision ladder additionally drops
-    non-multimodal providers. ``registry`` is injectable for tests.
+    **Bring-your-own keys** (``byo_keys`` maps a provider id — ``gemini``/``mistral``/``groq`` —
+    to the caller's key) restrict the ladder to *only* those providers, built on the caller's
+    keys: a BYO caller spends their own quota, so the ladder must never fall back onto the
+    operator's other-provider keys. Otherwise the ladder follows ``settings.audit_model_order``
+    over the operator's configured providers. Either way, a provider is included only when
+    available, and the vision ladder drops non-multimodal providers. ``registry`` is injectable
+    for tests.
     """
-    if google_key:
-        from ragchat.rag.llm import build_llm, build_vision_llm
-
-        return (
-            [build_llm(settings, google_key=google_key, max_retries=max_retries)],
-            [build_vision_llm(settings, google_key=google_key, max_retries=max_retries)],
-        )
-
     reg = registry if registry is not None else _REGISTRY
-    order = [pid.strip() for pid in settings.audit_model_order.split(",") if pid.strip()]
+
+    if byo_keys:
+        # Overlay the caller's keys onto a settings copy, and restrict the order to just the
+        # providers they supplied (in the configured order). No operator keys are spent.
+        overlay = {
+            _BYO_KEY_FIELD[pid]: SecretStr(key)
+            for pid, key in byo_keys.items()
+            if pid in _BYO_KEY_FIELD and key
+        }
+        settings = settings.model_copy(update=overlay)
+        supplied = {pid for pid in byo_keys if pid in _BYO_KEY_FIELD and byo_keys[pid]}
+        order = [pid for pid in _order(settings) if pid in supplied]
+        # Preserve any supplied provider not named in AUDIT_MODEL_ORDER (append in given order).
+        order += [pid for pid in supplied if pid not in order]
+    else:
+        order = _order(settings)
+
     text: list[Any] = []
     vision: list[Any] = []
     for pid in order:
@@ -190,3 +225,42 @@ def build_audit_ladder(
         if provider.multimodal:
             vision.append(provider.build_vision(settings, max_retries))
     return text, vision
+
+
+def describe_audit_ladder(
+    settings: Settings, *, registry: dict[str, _Provider] | None = None
+) -> list[dict[str, Any]]:
+    """Non-secret snapshot of the configured ladder for the ``/providers`` diagnostic.
+
+    Reports, per provider in ``AUDIT_MODEL_ORDER``, whether it's configured (key present — the
+    boolean only, never the key), whether it's multimodal, and the resolved text/scan model
+    ids. Builds nothing and imports no SDK.
+    """
+    reg = registry if registry is not None else _REGISTRY
+    out: list[dict[str, Any]] = []
+    for pid in _order(settings):
+        provider = reg.get(pid)
+        if provider is None:
+            out.append(
+                {
+                    "id": pid,
+                    "known": False,
+                    "configured": False,
+                    "multimodal": False,
+                    "text_model": None,
+                    "vision_model": None,
+                }
+            )
+            continue
+        models = provider.describe(settings)
+        out.append(
+            {
+                "id": pid,
+                "known": True,
+                "configured": provider.available(settings),
+                "multimodal": provider.multimodal,
+                "text_model": models.get("text"),
+                "vision_model": models.get("vision") if provider.multimodal else None,
+            }
+        )
+    return out
