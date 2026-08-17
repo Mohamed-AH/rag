@@ -137,6 +137,14 @@ reads both. Tune `MAX_FILES_PER_PACKET` and `ACTIVE_CHECKLIST`. It's multi-tenan
 their **own** Google key via the `X-Google-Api-Key` header, used per request and never
 stored.
 
+**Model fallback ladder.** So a busy day doesn't die when Gemini's free quota runs out, the
+audit fails over to the next provider in `AUDIT_MODEL_ORDER` (default
+`gemini → mistral → groq → openai_compat`) — all free-tier, multimodal, and opt-in: a rung
+engages only once its key is set, so the app runs on Gemini alone until you add
+`MISTRAL_API_KEY` / `GROQ_API_KEY` / an OpenAI-compatible endpoint (e.g. OpenRouter for a
+free Qwen2.5-VL). Only quota/transient errors fail over; model ids are env-tunable since
+free model names churn. See [DEPLOY.md](DEPLOY.md#audit-model-fallback-ladder).
+
 ---
 
 ## API

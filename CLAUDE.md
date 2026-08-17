@@ -56,11 +56,16 @@ Pure domain package `src/ragchat/audit/` — clean DAG, no I/O:
 - `export.py` — `render_request(report, checklist_name)`: the Phase-3 **missing-items
   request** (client-ready email text with page-cited evidence). Reads only the unified
   `GapReport`, so it works for every vertical; surfaced as `AuditResponse.request_summary`.
-- `analyzer.py` — `Analyzer` **protocol** + `GeminiAnalyzer`: **single-pass** classify+extract
-  in one structured call per **file**, returning a **list** of documents so a combined
-  multi-page packet (one PDF, many docs) is split into all its documents (the only
-  model-facing code; injected so tests use a fake). Takes a `select_llm(content)` callable
-  for per-path model routing.
+- `analyzer.py` — `Analyzer` **protocol** + `StructuredAnalyzer` (formerly `GeminiAnalyzer`):
+  **single-pass** classify+extract in one structured call per **file**, returning a **list**
+  of documents so a combined multi-page packet (one PDF, many docs) is split into all its
+  documents (the only model-facing code; injected so tests use a fake). Takes a
+  `select_models(content)` callable returning an **ordered fallback ladder**; retries the
+  next provider on quota/rate/transient errors (`_is_retryable`).
+- `../rag/providers.py` — `build_audit_ladder(settings, *, google_key)` builds `(text, vision)`
+  ordered model ladders from `AUDIT_MODEL_ORDER` (`gemini,mistral,groq,openai_compat`); a rung
+  is included only if its key/URL is set; providers imported **lazily**; BYO Google key →
+  Gemini-only. `is_retryable_provider_error` is the provider-agnostic fail-over predicate.
 
 Pipeline & surfaces:
 - `ingestion/router.py` — `route()` picks text path (wraps existing `extractors.py`) vs
@@ -94,7 +99,7 @@ Pipeline & surfaces:
   **per-finding accept/override review** controls, and **Copy request / Download / Print**
   on the report (`@media print` hides chrome for Save-as-PDF).
 
-Tests: `tests/unit/test_{report,checklist,gap_engine,router,audit_service,audit_api,manifest,review,audit_review,review_api}.py`;
+Tests: `tests/unit/test_{report,checklist,gap_engine,router,audit_service,audit_api,manifest,review,audit_review,review_api,providers,analyzer_fallback}.py`;
 hermetic eval `tests/eval/` (gold Customs packets, precision/recall gate at 1.0). Fake
 `FakeAnalyzer`/`FakeAnalysis` live in `tests/conftest.py`. **Customs is now loaded from
 `manifests/customs.yaml`, so the full green suite is the manifest-parity proof.**
@@ -357,3 +362,36 @@ budget. Fix — new `guard_audit` on `POST /audit`:
 The live `GOOGLE_API_KEY` is a **free-tier** key, so the provider quota is itself the hard
 cost ceiling (abuse → `RESOURCE_EXHAUSTED` → 429, no bill); this hardening keeps abuse from
 starving that shared quota out from under legit users. A billed key would make it critical.
+
+### Model fallback ladder (2026-08-17) — resilience when the free quota runs out
+
+A single free-tier Gemini key is a single point of failure: one busy day exhausts it and
+every audit 429s. Added a provider **fallback ladder** on the audit path — entirely a
+model-layer change, because the analyzer already consumed any LangChain chat model via
+`.with_structured_output(...).invoke(...)`.
+
+- **`rag/providers.py`** — `build_audit_ladder(settings, *, google_key)` returns
+  `(text_models, vision_models)`, ordered per `AUDIT_MODEL_ORDER`
+  (`gemini,mistral,groq,openai_compat`). A provider is included only when its key (and, for
+  `openai_compat`, base URL) is set, so the app ships working on **Gemini alone**; the vision
+  ladder drops non-multimodal providers. All integrations imported **lazily** (CI needs no
+  SDKs). BYO Google key → **Gemini-only** (never spends the operator's other keys).
+- **Analyzer** — `GeminiAnalyzer` → **`StructuredAnalyzer`**, constructor now takes
+  `select_models(content) -> list`. `_invoke_with_fallback` tries each rung; on a
+  quota/rate/transient error (`_is_retryable`, string/type match — no SDK exception import) it
+  falls through to the next, else the error propagates (a real bug isn't masked). `service.
+  build_audit_service` builds the ladder and picks text vs vision by `content.mode`.
+- **Providers chosen** (all free-tier, multimodal): Mistral (Small + Pixtral), Groq (Llama-3.3
+  + Llama-4 vision), and a generic **`openai_compat`** rung → point at OpenRouter for a free
+  **Qwen2.5-VL** (strong open document model). Grok (xAI) is paid, but drops into
+  `openai_compat` by config if credits ever exist. No self-hosting (out of budget).
+- **Config** — `audit_model_order` + optional `mistral_/groq_/openai_compat_*` keys+model ids
+  (all `SecretStr|None`, absent = rung disabled). Model ids env-tunable because free model
+  names churn. `render.yaml` adds the keys as dashboard secrets; deps add
+  `langchain-groq/-mistralai/-openai` (+ mypy overrides).
+- **Tests** — `test_providers.py` (ladder ordering/skip/vision-filter/BYO/retry-predicate via
+  injected fake registry), `test_analyzer_fallback.py` (fail-over on quota, propagate on
+  non-retryable, last-error propagates, empty ladder). 180 pass; ruff + mypy --strict clean.
+
+**Data note:** the `openai_compat` rung sends packet content to a third-party host
+(OpenRouter etc.) — flagged in DEPLOY.md; leave it unset to keep audits on Google/Mistral/Groq.

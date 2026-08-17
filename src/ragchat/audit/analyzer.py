@@ -7,13 +7,16 @@ of :class:`ClassifiedDocument`. This is what lets a customs broker drop in one m
 and still get every document recognized — and it stays one model call, so it's quota-cheap.
 
 The :class:`Analyzer` protocol is the pipeline's dependency, so tests inject a deterministic
-fake and never touch a model. :class:`GeminiAnalyzer` is the production adapter; it takes a
-``select_llm`` callable so text-path files use the cheap, higher-quota lite model and
-scans/images use the (also-lite by default) multimodal model.
+fake and never touch a model. :class:`StructuredAnalyzer` is the production adapter; it
+takes a ``select_models`` callable returning an **ordered fallback ladder** of chat models
+for the given content (text path vs multimodal/scan path). The primary is tried first; if
+it fails with a quota/rate/transient error, the same structured call retries on the next
+model in the ladder, so the audit survives one provider's free quota running out.
 """
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Callable
 from typing import Any, Protocol
 
@@ -24,7 +27,36 @@ from ragchat.audit.evidence import ClassifiedDocument, ExtractedField
 from ragchat.audit.report import SourcePointer
 from ragchat.ingestion.router import DocumentContent
 
+logger = logging.getLogger(__name__)
+
 _UNKNOWN = "unknown"
+
+# Substrings marking a provider failure worth retrying on the next rung of the ladder
+# (quota/rate limits, transient upstream errors). Matched against the exception's type name
+# + message; a non-matching error is not retried, so a real bug surfaces instead of silently
+# burning every provider. Kept here (not imported) so the audit package stays self-contained.
+_RETRYABLE_MARKERS: tuple[str, ...] = (
+    "resource_exhausted",
+    "quota",
+    "rate limit",
+    "ratelimit",
+    "too many requests",
+    "429",
+    "500",
+    "502",
+    "503",
+    "overloaded",
+    "unavailable",
+    "temporarily",
+    "timeout",
+    "timed out",
+    "try again",
+)
+
+
+def _is_retryable(exc: BaseException) -> bool:
+    blob = f"{type(exc).__name__} {exc}".lower()
+    return any(marker in blob for marker in _RETRYABLE_MARKERS)
 
 
 class Analyzer(Protocol):
@@ -89,20 +121,24 @@ def _prompt(checklist: Checklist) -> str:
     )
 
 
-class GeminiAnalyzer:
-    """Production analyzer backed by a single structured Gemini call per file."""
+class StructuredAnalyzer:
+    """Production analyzer: one structured call per file, over a provider fallback ladder.
 
-    def __init__(self, select_llm: Callable[[DocumentContent], Any]) -> None:
-        self._select_llm = select_llm
+    ``select_models`` returns the ordered list of chat models to try for the given content
+    (text vs multimodal). The primary is used first; a quota/rate/transient failure falls
+    through to the next model, so one provider's exhausted free tier doesn't fail the audit.
+    """
+
+    def __init__(self, select_models: Callable[[DocumentContent], list[Any]]) -> None:
+        self._select_models = select_models
 
     def analyze(
         self, doc_id: str, content: DocumentContent, checklist: Checklist
     ) -> list[ClassifiedDocument]:
         from ragchat.rag.llm import build_document_message
 
-        structured = self._select_llm(content).with_structured_output(_AnalysisResult)
         message = build_document_message(_prompt(checklist), content)
-        result: _AnalysisResult = structured.invoke([message])
+        result = self._invoke_with_fallback(self._select_models(content), message)
 
         known = checklist.doc_type_ids()
         multi = len(result.documents) > 1
@@ -127,6 +163,32 @@ class GeminiAnalyzer:
         if not out:
             out.append(ClassifiedDocument(doc_id=doc_id, doc_type=None, confidence=0.0))
         return out
+
+    def _invoke_with_fallback(self, candidates: list[Any], message: Any) -> _AnalysisResult:
+        """Run the structured call on the first model; on a retryable failure, try the next.
+
+        Only quota/rate/transient errors fall through (see :func:`_is_retryable`); any other
+        error, and the last model's error, propagate — so a genuine problem isn't masked by
+        pointlessly retrying every provider.
+        """
+        if not candidates:
+            raise RuntimeError("no audit model providers are configured")
+        for index, model in enumerate(candidates):
+            try:
+                structured = model.with_structured_output(_AnalysisResult)
+                result: _AnalysisResult = structured.invoke([message])
+                return result
+            except Exception as exc:
+                is_last = index == len(candidates) - 1
+                if is_last or not _is_retryable(exc):
+                    raise
+                logger.warning(
+                    "audit model %d/%d failed (%s); falling back to the next provider",
+                    index + 1,
+                    len(candidates),
+                    type(exc).__name__,
+                )
+        raise RuntimeError("unreachable: fallback loop exhausted without returning")
 
 
 def _doc_id(base: str, doc: _DocResult, index: int, multi: bool, seen: set[str]) -> str:

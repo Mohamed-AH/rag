@@ -77,6 +77,38 @@ All limits are environment variables you can change in the Render dashboard:
 | `DAILY_AUDIT_BUDGET` | `150` | Instance-wide shared-key audits/day — the audit cost ceiling (0 = off) |
 | `USAGE_HASH_SALT` | `change-me-in-prod` | Secret salt for hashing client IPs in usage counters; set a real value |
 | `TRUSTED_PROXY_HOPS` | `1` | Reverse-proxy hops in front of the app (Render = 1). The real client IP is read that many entries from the right of `X-Forwarded-For`, so client-prepended values can't spoof a fresh allowance. |
+| `AUDIT_MODEL_ORDER` | `gemini,mistral,groq,openai_compat` | Ordered audit fallback ladder (primary first). A rung is used only if its key is set. |
+| `MISTRAL_API_KEY` | _(unset)_ | Free Mistral key — enables the `mistral` rung (text + Pixtral vision) |
+| `GROQ_API_KEY` | _(unset)_ | Free Groq key — enables the `groq` rung (Llama text + Llama-4 vision) |
+| `OPENAI_COMPAT_API_KEY` / `OPENAI_COMPAT_BASE_URL` / `OPENAI_COMPAT_MODEL` | _(unset)_ / _(unset)_ / `qwen/…:free` | Any OpenAI-compatible endpoint (e.g. OpenRouter). All three needed to enable the rung. |
+
+## Audit model fallback ladder
+
+The audit path makes one structured model call per file on the shared Gemini key. When that
+free quota is exhausted (`429 RESOURCE_EXHAUSTED`), the audit doesn't fail — it **retries the
+same call on the next provider** in `AUDIT_MODEL_ORDER`. Every fallback is a free-tier,
+OpenAI/LangChain-compatible, multimodal-capable provider:
+
+- **`mistral`** — free tier; Mistral Small (text) + **Pixtral** (scans). Set `MISTRAL_API_KEY`.
+- **`groq`** — free tier; Llama-3.3 (text) + **Llama-4** (scans). Set `GROQ_API_KEY`.
+- **`openai_compat`** — any OpenAI-compatible endpoint. Point it at **OpenRouter** to reach a
+  free **Qwen2.5-VL** (an excellent open document model, incl. scans): set
+  `OPENAI_COMPAT_API_KEY`, `OPENAI_COMPAT_BASE_URL=https://openrouter.ai/api/v1`, and
+  `OPENAI_COMPAT_MODEL` to a live `:free` model id.
+
+A rung engages only once its key (and, for `openai_compat`, its base URL) is set — so the
+app ships working on **Gemini alone** and each fallback is opt-in. Only quota/rate/transient
+errors trigger fail-over; a genuine error surfaces normally. **Model ids are env-tunable on
+purpose**: free model names churn (OpenRouter especially), so when one is retired you swap a
+single dashboard variable — no redeploy.
+
+> **Note on `openai_compat` and data.** Hosted third-party models (e.g. via OpenRouter)
+> receive the document content of each audited packet. For real commercial documents, weigh
+> this against your data-handling obligations; leave the rung unset to keep audits on
+> Google/Mistral/Groq only.
+
+A **bring-your-own Google key** (`X-Google-Api-Key`) runs Gemini-only with no fallback — a
+BYO user spends their own quota and never the operator's other-provider keys.
 
 ## Usage limits & bring-your-own-keys
 

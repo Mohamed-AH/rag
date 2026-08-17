@@ -83,7 +83,30 @@ file view lets it identify *every* document, group pages by shared identifiers
 (invoice/BoL/container numbers) rather than by order, and return one `ClassifiedDocument`
 per detected document (each with its `pages` list) — still one model call per file.
 
-### 6. Intake router wraps, not replaces, the existing extractors
+### 6. A provider fallback ladder, not a single vendor
+
+**Decision:** The analyzer is given an **ordered list** of chat models (`select_models`),
+not one. It tries the primary (Gemini); on a quota/rate/transient error it retries the
+*same* structured call on the next model. `rag/providers.py` builds the ladder from
+`AUDIT_MODEL_ORDER`, including a provider only when its key is configured (so the app ships
+working on Gemini alone), with a separate multimodal ladder for the scan path.
+
+**Why:** A free-tier key is a single point of failure — one busy day exhausts it and every
+audit 429s. Because the analyzer already consumed any LangChain chat model via
+`.with_structured_output(...).invoke(...)`, a fallback needed no engine, schema, or analyzer-
+logic change — just: return a list, and loop. The fallbacks (Mistral/Pixtral, Groq/Llama-4,
+or any OpenAI-compatible endpoint such as OpenRouter → Qwen2.5-VL) are all free-tier and
+multimodal, so resilience costs nothing.
+
+**Design choices worth noting:** the fail-over *trigger* is a provider-agnostic predicate on
+the exception text (quota/rate/transient), so no provider SDK exception class needs importing
+and a genuine error still surfaces instead of silently burning every rung; a bring-your-own
+Google key builds a Gemini-only ladder (a BYO user must never spend the operator's other
+keys); and every provider integration is imported **lazily**, so the app and the hermetic
+test suite never require the fallback SDKs to be installed. Model ids and order are env-
+tunable because free model names churn.
+
+### 7. Intake router wraps, not replaces, the existing extractors
 
 `ingestion/router.py` picks the **text path** (wrapping the existing `extractors.py` for
 files with a real text layer) or the **multimodal path** (scanned PDFs and images, handed
@@ -92,14 +115,14 @@ Flash-Lite is natively multimodal, per-path model *routing* (a `select_llm(conte
 callable) lets text-path docs and scans share one generous lite-tier quota, while leaving
 the door open to point scans at a heavier OCR model if real documents ever demand it.
 
-### 7. The engine is pure; everything model-facing is injected
+### 8. The engine is pure; everything model-facing is injected
 
 `engine.evaluate(checklist, evidence)` is a pure function — no I/O, no clock, no network —
 so it is exhaustively and instantly testable. The one component that must call a model
 (the analyzer) sits behind a protocol and is injected, so the **entire pipeline is
 hermetically testable** with a `FakeAnalyzer`: the CI suite needs no keys and no network.
 
-### 8. Reviewer overlay: the machine never has the last word
+### 9. Reviewer overlay: the machine never has the last word
 
 **Decision:** An audit's Gap Report is **persisted** (table `packet_findings`), and a human
 reviewer can **accept** a finding (confirm the machine verdict) or **override** it (set a
@@ -123,7 +146,7 @@ confirm the machine), so every stored decision is meaningful.
 whole workflow (list history, re-open, accept/override, session scoping) is tested against
 SQLite with no network, same as the rest of the suite.
 
-### 9. v1 scope: completeness & consistency only
+### 10. v1 scope: completeness & consistency only
 
 The engine checks that a packet is *complete* and *internally consistent*. It does **not**
 attempt authenticity or fraud detection (is this invoice forged?) in v1. Cross-document
@@ -146,7 +169,8 @@ Pure domain package `src/ragchat/audit/` (a clean DAG, no I/O):
 | `engine.py` | `evaluate(checklist, evidence)` — pure; L1 presence + gated L2 rules |
 | `export.py` | `render_request(report, checklist_name)` — client-ready missing-items email from any report |
 | `review.py` | Reviewer overlay: `ReviewAction`, `Review`, `ReviewedFinding` (effective status), `effective_report` |
-| `analyzer.py` | `Analyzer` protocol + `GeminiAnalyzer` (single-pass classify+extract → list of documents) |
+| `analyzer.py` | `Analyzer` protocol + `StructuredAnalyzer` (single-pass classify+extract → list of documents; retries the ladder on quota/transient errors) |
+| `../rag/providers.py` | Builds the audit fallback ladder (`build_audit_ladder`) from `AUDIT_MODEL_ORDER`; providers imported lazily |
 
 Pipeline & surfaces: `ingestion/router.py` (path selection) → `analyzer` → `engine`;
 `service.py` (`AuditService.audit_packet` composes them, enforces the file cap before any
