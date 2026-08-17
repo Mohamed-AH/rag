@@ -45,5 +45,18 @@ services:
         value: "gemini-flash-lite-latest"
       - key: VISION_MODEL
         value: "gemini-flash-lite-latest"
+      # --- Audit model fallback ladder ---
+      # When Gemini's free quota is exhausted, the audit retries the same call on the next
+      # available provider. A rung engages only once its key (set below as a dashboard
+      # secret) is present, so the app runs on Gemini alone until you add them. Model ids
+      # are tunable here because free model names churn.
+      - key: AUDIT_MODEL_ORDER
+        value: "gemini,mistral,groq"
+      - key: MISTRAL_API_KEY        # free tier — enables the mistral rung (Ministral-3B, multimodal)
+        sync: false
+      - key: GROQ_API_KEY           # free tier — enables the groq rung (gpt-oss-120b text + Qwen-VL scans)
+        sync: false
+      # OpenRouter (openai_compat) is supported but off by default. To enable, add
+      # 'openai_compat' to AUDIT_MODEL_ORDER and set OPENAI_COMPAT_API_KEY / _BASE_URL / _MODEL.
       - key: LOG_LEVEL
         value: "INFO"

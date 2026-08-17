@@ -99,6 +99,49 @@ class Settings(BaseSettings):
         "override with a heavier multimodal model only if real scans need more OCR accuracy.",
     )
 
+    # --- Audit model fallback ladder --------------------------------------
+    # When the primary (Gemini) is quota-exhausted, the audit analyzer transparently retries
+    # the same structured call on the next available provider. Each provider is used only if
+    # its key (and, for openai_compat, its base_url) is set — otherwise it is skipped — so
+    # the app ships working on Gemini alone and each rung is opt-in via a dashboard secret.
+    # Order and model ids are env-tunable so a churned free model can be swapped without a
+    # redeploy. All fallbacks are OpenAI/LangChain-compatible and multimodal-capable.
+    audit_model_order: str = Field(
+        default="gemini,mistral,groq",
+        description="Comma-separated provider ids forming the audit fallback ladder, primary "
+        "first. Providers without a configured key/URL are skipped. Ids: gemini, mistral, "
+        "groq, openai_compat (openai_compat is available but off by default — add it to the "
+        "order and set its key/URL to enable, e.g. an OpenRouter endpoint).",
+    )
+    mistral_api_key: SecretStr | None = Field(
+        default=None, description="API key for Mistral (free tier). Enables the mistral rung."
+    )
+    # Ministral-3B is a hybrid multimodal model (LLM + ViT), so this one id serves both the
+    # text and scan paths.
+    mistral_model: str = Field(default="ministral-3b-2512")
+    groq_api_key: SecretStr | None = Field(
+        default=None, description="API key for Groq (free tier). Enables the groq rung."
+    )
+    # gpt-oss-120b is a strong text reasoning model on Groq's free tier, but text-only, so the
+    # scan path uses a separate multimodal Groq model (Qwen-VL, the vision model on Groq).
+    groq_model: str = Field(default="openai/gpt-oss-120b")
+    groq_vision_model: str = Field(default="qwen/qwen3.6-27b")
+    openai_compat_api_key: SecretStr | None = Field(
+        default=None,
+        description="API key for any OpenAI-compatible endpoint (e.g. OpenRouter). Enables "
+        "the openai_compat rung.",
+    )
+    openai_compat_base_url: str | None = Field(
+        default=None,
+        description="Base URL for the OpenAI-compatible endpoint, e.g. "
+        "https://openrouter.ai/api/v1. Required for the openai_compat rung.",
+    )
+    openai_compat_model: str = Field(
+        default="qwen/qwen2.5-vl-72b-instruct:free",
+        description="Model id served by the OpenAI-compatible endpoint. On OpenRouter the "
+        "':free' Qwen2.5-VL variant is multimodal; free model ids rotate, so keep this tunable.",
+    )
+
     # --- Rate limiting & cost control (in-memory; per instance) ------------
     rate_limit_asks_per_minute: int = Field(
         default=10,

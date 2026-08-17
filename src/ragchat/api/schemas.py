@@ -189,6 +189,22 @@ class ChecklistOption(BaseModel):
     name: str
 
 
+class ProviderStatus(BaseModel):
+    """One rung of the audit fallback ladder, for the ``/providers`` diagnostic.
+
+    Reports only non-secret facts: whether the provider's key is present (``configured`` —
+    never the key itself) and the resolved model ids. Lets an operator confirm env overrides
+    and the active ladder right after deploy.
+    """
+
+    id: str
+    known: bool = Field(description="Whether this id is a recognized provider.")
+    configured: bool = Field(description="Whether the provider's key/URL is set (never the key).")
+    multimodal: bool
+    text_model: str | None = None
+    vision_model: str | None = None
+
+
 # --- Reviewer workflow & history -----------------------------------------
 
 

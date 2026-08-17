@@ -77,6 +77,50 @@ All limits are environment variables you can change in the Render dashboard:
 | `DAILY_AUDIT_BUDGET` | `150` | Instance-wide shared-key audits/day — the audit cost ceiling (0 = off) |
 | `USAGE_HASH_SALT` | `change-me-in-prod` | Secret salt for hashing client IPs in usage counters; set a real value |
 | `TRUSTED_PROXY_HOPS` | `1` | Reverse-proxy hops in front of the app (Render = 1). The real client IP is read that many entries from the right of `X-Forwarded-For`, so client-prepended values can't spoof a fresh allowance. |
+| `AUDIT_MODEL_ORDER` | `gemini,mistral,groq` | Ordered audit fallback ladder (primary first). A rung is used only if its key is set. Add `openai_compat` to enable that rung. |
+| `MISTRAL_API_KEY` | _(unset)_ | Free Mistral key — enables the `mistral` rung. `MISTRAL_MODEL` (`ministral-3b-2512`) is a hybrid multimodal model, so it serves both text and scans. |
+| `GROQ_API_KEY` | _(unset)_ | Free Groq key — enables the `groq` rung (`GROQ_MODEL` text + `GROQ_VISION_MODEL` scans) |
+| `GROQ_MODEL` / `GROQ_VISION_MODEL` | `openai/gpt-oss-120b` / `qwen/qwen3.6-27b` | Groq text (gpt-oss-120b is text-only) and multimodal scan model (Qwen-VL) |
+| `OPENAI_COMPAT_API_KEY` / `OPENAI_COMPAT_BASE_URL` / `OPENAI_COMPAT_MODEL` | _(unset)_ / _(unset)_ / `qwen/…:free` | Any OpenAI-compatible endpoint (e.g. OpenRouter). Off by default; add `openai_compat` to `AUDIT_MODEL_ORDER` and set all three to enable. |
+
+## Audit model fallback ladder
+
+The audit path makes one structured model call per file on the shared Gemini key. When that
+free quota is exhausted (`429 RESOURCE_EXHAUSTED`), the audit doesn't fail — it **retries the
+same call on the next provider** in `AUDIT_MODEL_ORDER`. Every fallback is a free-tier,
+OpenAI/LangChain-compatible, multimodal-capable provider:
+
+- **`mistral`** — free tier; **Ministral-3B**, a hybrid multimodal model (LLM + ViT) that
+  handles both text and scans. Set `MISTRAL_API_KEY`.
+- **`groq`** — free tier; **gpt-oss-120b** (text) + **Qwen-VL** (`qwen/qwen3.6-27b`, scans).
+  Set `GROQ_API_KEY`. gpt-oss-120b is text-only, which is why the scan path uses a separate
+  multimodal model (`GROQ_VISION_MODEL`).
+- **`openai_compat`** (off by default) — any OpenAI-compatible endpoint. Point it at
+  **OpenRouter** to reach a free **Qwen2.5-VL** (an excellent open document model, incl.
+  scans): add `openai_compat` to `AUDIT_MODEL_ORDER` and set `OPENAI_COMPAT_API_KEY`,
+  `OPENAI_COMPAT_BASE_URL=https://openrouter.ai/api/v1`, and `OPENAI_COMPAT_MODEL` to a live
+  `:free` model id.
+
+A rung engages only once its key (and, for `openai_compat`, its base URL) is set — so the
+app ships working on **Gemini alone** and each fallback is opt-in. Only quota/rate/transient
+errors trigger fail-over; a genuine error surfaces normally. **Model ids are env-tunable on
+purpose**: free model names churn, so when one is retired you swap a single dashboard
+variable — no redeploy.
+
+> **Note on `openai_compat` and data.** Hosted third-party models (e.g. via OpenRouter)
+> receive the document content of each audited packet. For real commercial documents, weigh
+> this against your data-handling obligations; it is off by default, keeping audits on
+> Google/Mistral/Groq unless you explicitly enable it.
+
+**Bring-your-own key for any of the three providers.** A caller may send a key for Gemini
+(`X-Google-Api-Key`), Mistral (`X-Mistral-Api-Key`), or Groq (`X-Groq-Api-Key`). The ladder
+is then restricted to the provider(s) they supplied, built on **their** key — the operator's
+other-provider keys are never used. Any BYO audit key also bypasses the shared-key limits
+(they're spending their own quota). Keys are read per request and never stored or logged.
+
+**`GET /providers`** is a non-secret diagnostic: it lists each rung in `AUDIT_MODEL_ORDER`
+with whether its key is configured (the boolean only) and the resolved text/scan model ids —
+handy for confirming your env overrides and the active ladder right after deploy.
 
 ## Usage limits & bring-your-own-keys
 
@@ -92,9 +136,9 @@ provider free tier no matter what.
 has its own guard: a per-user daily allowance (`DAILY_AUDIT_FREE_ALLOWANCE`) and an
 instance-wide ceiling (`DAILY_AUDIT_BUDGET`), both keyed on the **salted-hashed client IP**
 rather than the session cookie — so a visitor can't reset their allowance just by dropping
-the cookie to mint a fresh session. A Google-only BYO key (`X-Google-Api-Key`) bypasses both
-(the audit path needs no Cohere key). Exceeding the per-user allowance returns a `429` the UI
-turns into an own-key prompt; exceeding the instance ceiling returns a plain `429`.
+the cookie to mint a fresh session. A BYO key for any audit provider (Gemini/Mistral/Groq)
+bypasses both. Exceeding the per-user allowance returns a `429` the UI turns into an own-key
+prompt; exceeding the instance ceiling returns a plain `429`.
 
 ## Caveats (by design, for a free demo)
 

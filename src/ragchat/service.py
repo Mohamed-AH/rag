@@ -468,31 +468,39 @@ def _serialize_fields(fields: dict[str, ExtractedField]) -> dict[str, Any] | Non
 
 
 def build_audit_service(
-    session_id: str, *, google_key: str | None = None, checklist_id: str | None = None
+    session_id: str,
+    *,
+    byo_keys: dict[str, str] | None = None,
+    checklist_id: str | None = None,
 ) -> AuditService:
     """Wire a fully configured, session-scoped :class:`AuditService`.
 
-    The audit path needs only the Gemini model (no embeddings / pgvector). ``google_key``,
-    when supplied, is a bring-your-own key used to build the model per request and never
-    persisted. ``checklist_id`` selects the vertical manifest, defaulting to the configured
-    ``active_checklist``; an unknown id raises :class:`~ragchat.errors.UnknownChecklistError`.
+    The audit path needs only chat models (no embeddings / pgvector). ``byo_keys`` maps a
+    provider id (``gemini``/``mistral``/``groq``) to a caller-supplied key: the ladder is then
+    restricted to those providers on the caller's own quota (no fallback to the operator's
+    keys). Otherwise a **fallback ladder** is built from ``AUDIT_MODEL_ORDER`` (Gemini primary,
+    then any configured Mistral/Groq/OpenAI-compatible rung), so an exhausted free quota fails
+    over instead of failing the audit. ``checklist_id`` selects the vertical manifest (default
+    ``active_checklist``); an unknown id raises :class:`~ragchat.errors.UnknownChecklistError`.
     """
-    from ragchat.audit.analyzer import GeminiAnalyzer
+    from ragchat.audit.analyzer import StructuredAnalyzer
     from ragchat.audit.manifest import get_checklist
     from ragchat.db.engine import get_session_factory, init_db
     from ragchat.ingestion.router import IMAGE
-    from ragchat.rag.llm import build_llm, build_vision_llm
+    from ragchat.rag.providers import build_audit_ladder
 
     init_db()
     settings = get_settings()
-    # Route by path to conserve quota: text-path documents use the cheaper, higher
-    # free-quota lite chat model; only scans/images spend the multimodal model. Retries
-    # are bounded so a quota/rate error fails fast instead of tying up a worker.
-    text_llm = build_llm(settings, google_key=google_key, max_retries=2)
-    vision_llm = build_vision_llm(settings, google_key=google_key, max_retries=2)
+    # An ordered ladder per path: text-path files use the text ladder (cheaper, higher-quota
+    # models first), scans use the multimodal ladder. Retries are bounded so a quota/rate
+    # error fails fast to the next provider instead of tying up a worker.
+    text_models, vision_models = build_audit_ladder(settings, byo_keys=byo_keys, max_retries=2)
+    if not text_models:  # misconfigured AUDIT_MODEL_ORDER with no available provider
+        raise RuntimeError("no audit model providers are configured (check AUDIT_MODEL_ORDER)")
+    vision_models = vision_models or text_models
 
-    def select_llm(content: DocumentContent) -> Any:
-        return vision_llm if content.mode == IMAGE else text_llm
+    def select_models(content: DocumentContent) -> list[Any]:
+        return vision_models if content.mode == IMAGE else text_models
 
     checklist = get_checklist(checklist_id or settings.active_checklist)
 
@@ -500,7 +508,7 @@ def build_audit_service(
         session_id=session_id,
         session_factory=get_session_factory(),
         checklist=checklist,
-        analyzer=GeminiAnalyzer(select_llm),
+        analyzer=StructuredAnalyzer(select_models),
         ttl_hours=settings.session_ttl_hours,
         max_files=settings.max_files_per_packet,
         max_upload_bytes=settings.max_upload_bytes,

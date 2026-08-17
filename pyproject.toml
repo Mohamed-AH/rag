@@ -26,6 +26,11 @@ dependencies = [
     "langchain-postgres>=0.0.9",
     "langchain-cohere>=0.1.5",
     "langchain-google-genai>=1.0.4",
+    # Audit fallback-ladder providers (all optional at runtime — a rung is used only when
+    # its key is set — but installed so the ladder can engage in production).
+    "langchain-groq>=0.1",
+    "langchain-mistralai>=0.1",
+    "langchain-openai>=0.1",
     "python-dotenv>=1.0",
     "python-multipart>=0.0.9",
     "pypdf>=4.2",
@@ -86,6 +91,9 @@ plugins = ["pydantic.mypy"]
 module = [
     "langchain_cohere.*",
     "langchain_google_genai.*",
+    "langchain_groq.*",
+    "langchain_mistralai.*",
+    "langchain_openai.*",
     "langchain_postgres.*",
     "uvicorn.*",
     "docx.*",
