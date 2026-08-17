@@ -133,14 +133,14 @@ _REGISTRY: dict[str, _Provider] = {
     ),
     "mistral": _Provider(
         id="mistral",
-        multimodal=True,  # Pixtral
+        multimodal=True,  # Ministral-3B is a hybrid multimodal model (LLM + ViT): text + scans
         available=lambda s: s.mistral_api_key is not None,
         build_text=lambda s, r: _build_mistral(s, s.mistral_model, r),
-        build_vision=lambda s, r: _build_mistral(s, s.mistral_vision_model, r),
+        build_vision=lambda s, r: _build_mistral(s, s.mistral_model, r),
     ),
     "groq": _Provider(
         id="groq",
-        multimodal=True,  # Llama-4 vision
+        multimodal=True,  # gpt-oss-120b (text) + Qwen-VL (scans)
         available=lambda s: s.groq_api_key is not None,
         build_text=lambda s, r: _build_groq(s, s.groq_model, r),
         build_vision=lambda s, r: _build_groq(s, s.groq_vision_model, r),

@@ -140,8 +140,8 @@ stored.
 **Model fallback ladder.** So a busy day doesn't die when Gemini's free quota runs out, the
 audit fails over to the next provider in `AUDIT_MODEL_ORDER` (default
 `gemini → mistral → groq`) — all free-tier and multimodal: a rung engages only once its key
-is set, so the app runs on Gemini alone until you add `MISTRAL_API_KEY` (Mistral Small +
-Pixtral) and/or `GROQ_API_KEY` (gpt-oss-120b for text + Llama-4 for scans). A generic
+is set, so the app runs on Gemini alone until you add `MISTRAL_API_KEY` (Ministral-3B,
+multimodal) and/or `GROQ_API_KEY` (gpt-oss-120b for text + Qwen-VL for scans). A generic
 `openai_compat` rung (e.g. OpenRouter → a free Qwen2.5-VL) is supported but off by default —
 add it to the order and set its key/URL to enable. Only quota/transient errors fail over;
 model ids are env-tunable since free model names churn.

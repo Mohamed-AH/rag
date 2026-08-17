@@ -88,6 +88,15 @@ def test_byo_google_key_builds_gemini_only(monkeypatch: pytest.MonkeyPatch) -> N
     assert vision == ["g-vision:BYO"]
 
 
+def test_real_registry_capability_flags() -> None:
+    # All default rungs are multimodal (Ministral-3B is a hybrid LLM+ViT; Groq has Qwen-VL).
+    from ragchat.rag.providers import _REGISTRY
+
+    assert _REGISTRY["gemini"].multimodal is True
+    assert _REGISTRY["mistral"].multimodal is True
+    assert _REGISTRY["groq"].multimodal is True
+
+
 @pytest.mark.parametrize(
     ("exc", "expected"),
     [

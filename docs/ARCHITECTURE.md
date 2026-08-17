@@ -94,9 +94,11 @@ working on Gemini alone), with a separate multimodal ladder for the scan path.
 **Why:** A free-tier key is a single point of failure — one busy day exhausts it and every
 audit 429s. Because the analyzer already consumed any LangChain chat model via
 `.with_structured_output(...).invoke(...)`, a fallback needed no engine, schema, or analyzer-
-logic change — just: return a list, and loop. The fallbacks (Mistral/Pixtral, Groq/Llama-4,
-or any OpenAI-compatible endpoint such as OpenRouter → Qwen2.5-VL) are all free-tier and
-multimodal, so resilience costs nothing.
+logic change — just: return a list, and loop. The fallbacks (Mistral Ministral-3B, a hybrid
+multimodal model; Groq gpt-oss-120b for text + Qwen-VL for scans; or any OpenAI-compatible
+endpoint such as OpenRouter → Qwen2.5-VL) are all free-tier, so resilience costs nothing. A
+provider's `multimodal` flag controls whether it also joins the scan ladder, so a text-only
+rung would simply be skipped there.
 
 **Design choices worth noting:** the fail-over *trigger* is a provider-agnostic predicate on
 the exception text (quota/rate/transient), so no provider SDK exception class needs importing

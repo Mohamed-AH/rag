@@ -66,7 +66,8 @@ Pure domain package `src/ragchat/audit/` — clean DAG, no I/O:
   ordered model ladders from `AUDIT_MODEL_ORDER` (default `gemini,mistral,groq`; `openai_compat`
   supported but off by default); a rung is included only if its key/URL is set; providers
   imported **lazily**; BYO Google key → Gemini-only. Groq text = `openai/gpt-oss-120b`
-  (text-only), Groq scans = Llama-4 Scout. `is_retryable_provider_error` is the fail-over predicate.
+  (text-only), Groq scans = Qwen-VL (`qwen/qwen3.6-27b`). Mistral rung = Ministral-3B (hybrid
+  multimodal — one id for text + scans). `is_retryable_provider_error` is the fail-over predicate.
 
 Pipeline & surfaces:
 - `ingestion/router.py` — `route()` picks text path (wraps existing `extractors.py`) vs
@@ -383,11 +384,11 @@ model-layer change, because the analyzer already consumed any LangChain chat mod
   falls through to the next, else the error propagates (a real bug isn't masked). `service.
   build_audit_service` builds the ladder and picks text vs vision by `content.mode`.
 - **Providers chosen** (all free-tier): default ladder is **`gemini,mistral,groq`** — Mistral
-  (Small + Pixtral) and Groq (**gpt-oss-120b** text + Llama-4 Scout vision; gpt-oss is
-  text-only so the scan model is separate). The generic **`openai_compat`** rung (→ OpenRouter
-  for a free Qwen2.5-VL, or xAI Grok if paid credits ever exist) is supported but **off by
-  default** per the operator — add `openai_compat` to `AUDIT_MODEL_ORDER` + set its key/URL to
-  enable. No self-hosting (out of budget).
+  **Ministral-3B** (hybrid multimodal, one id for text + scans) and Groq (**gpt-oss-120b** text
+  + **Qwen-VL** `qwen/qwen3.6-27b` scans; gpt-oss is text-only so the scan model is separate). The generic
+  **`openai_compat`** rung (→ OpenRouter for a free Qwen2.5-VL, or xAI Grok if paid credits ever
+  exist) is supported but **off by default** per the operator — add `openai_compat` to
+  `AUDIT_MODEL_ORDER` + set its key/URL to enable. No self-hosting (out of budget).
 - **Config** — `audit_model_order` + optional `mistral_/groq_/openai_compat_*` keys+model ids
   (all `SecretStr|None`, absent = rung disabled). Model ids env-tunable because free model
   names churn. `render.yaml` adds the keys as dashboard secrets; deps add

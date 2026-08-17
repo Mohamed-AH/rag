@@ -78,9 +78,9 @@ All limits are environment variables you can change in the Render dashboard:
 | `USAGE_HASH_SALT` | `change-me-in-prod` | Secret salt for hashing client IPs in usage counters; set a real value |
 | `TRUSTED_PROXY_HOPS` | `1` | Reverse-proxy hops in front of the app (Render = 1). The real client IP is read that many entries from the right of `X-Forwarded-For`, so client-prepended values can't spoof a fresh allowance. |
 | `AUDIT_MODEL_ORDER` | `gemini,mistral,groq` | Ordered audit fallback ladder (primary first). A rung is used only if its key is set. Add `openai_compat` to enable that rung. |
-| `MISTRAL_API_KEY` | _(unset)_ | Free Mistral key — enables the `mistral` rung (Mistral Small text + Pixtral vision) |
+| `MISTRAL_API_KEY` | _(unset)_ | Free Mistral key — enables the `mistral` rung. `MISTRAL_MODEL` (`ministral-3b-2512`) is a hybrid multimodal model, so it serves both text and scans. |
 | `GROQ_API_KEY` | _(unset)_ | Free Groq key — enables the `groq` rung (`GROQ_MODEL` text + `GROQ_VISION_MODEL` scans) |
-| `GROQ_MODEL` / `GROQ_VISION_MODEL` | `openai/gpt-oss-120b` / `meta-llama/llama-4-scout-17b-16e-instruct` | Groq text (gpt-oss-120b is text-only) and multimodal scan models |
+| `GROQ_MODEL` / `GROQ_VISION_MODEL` | `openai/gpt-oss-120b` / `qwen/qwen3.6-27b` | Groq text (gpt-oss-120b is text-only) and multimodal scan model (Qwen-VL) |
 | `OPENAI_COMPAT_API_KEY` / `OPENAI_COMPAT_BASE_URL` / `OPENAI_COMPAT_MODEL` | _(unset)_ / _(unset)_ / `qwen/…:free` | Any OpenAI-compatible endpoint (e.g. OpenRouter). Off by default; add `openai_compat` to `AUDIT_MODEL_ORDER` and set all three to enable. |
 
 ## Audit model fallback ladder
@@ -90,9 +90,10 @@ free quota is exhausted (`429 RESOURCE_EXHAUSTED`), the audit doesn't fail — i
 same call on the next provider** in `AUDIT_MODEL_ORDER`. Every fallback is a free-tier,
 OpenAI/LangChain-compatible, multimodal-capable provider:
 
-- **`mistral`** — free tier; Mistral Small (text) + **Pixtral** (scans). Set `MISTRAL_API_KEY`.
-- **`groq`** — free tier; **gpt-oss-120b** (text) + **Llama-4 Scout** (scans). Set
-  `GROQ_API_KEY`. gpt-oss-120b is text-only, which is why the scan path uses a separate
+- **`mistral`** — free tier; **Ministral-3B**, a hybrid multimodal model (LLM + ViT) that
+  handles both text and scans. Set `MISTRAL_API_KEY`.
+- **`groq`** — free tier; **gpt-oss-120b** (text) + **Qwen-VL** (`qwen/qwen3.6-27b`, scans).
+  Set `GROQ_API_KEY`. gpt-oss-120b is text-only, which is why the scan path uses a separate
   multimodal model (`GROQ_VISION_MODEL`).
 - **`openai_compat`** (off by default) — any OpenAI-compatible endpoint. Point it at
   **OpenRouter** to reach a free **Qwen2.5-VL** (an excellent open document model, incl.

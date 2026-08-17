@@ -116,15 +116,16 @@ class Settings(BaseSettings):
     mistral_api_key: SecretStr | None = Field(
         default=None, description="API key for Mistral (free tier). Enables the mistral rung."
     )
-    mistral_model: str = Field(default="mistral-small-latest")
-    mistral_vision_model: str = Field(default="pixtral-12b-latest")
+    # Ministral-3B is a hybrid multimodal model (LLM + ViT), so this one id serves both the
+    # text and scan paths.
+    mistral_model: str = Field(default="ministral-3b-2512")
     groq_api_key: SecretStr | None = Field(
         default=None, description="API key for Groq (free tier). Enables the groq rung."
     )
-    # gpt-oss-120b is a strong text reasoning model on Groq's free tier, but text-only, so
-    # the scan path keeps a separate multimodal Groq model (Llama-4 Scout).
+    # gpt-oss-120b is a strong text reasoning model on Groq's free tier, but text-only, so the
+    # scan path uses a separate multimodal Groq model (Qwen-VL, the vision model on Groq).
     groq_model: str = Field(default="openai/gpt-oss-120b")
-    groq_vision_model: str = Field(default="meta-llama/llama-4-scout-17b-16e-instruct")
+    groq_vision_model: str = Field(default="qwen/qwen3.6-27b")
     openai_compat_api_key: SecretStr | None = Field(
         default=None,
         description="API key for any OpenAI-compatible endpoint (e.g. OpenRouter). Enables "

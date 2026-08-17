@@ -52,9 +52,9 @@ services:
       # are tunable here because free model names churn.
       - key: AUDIT_MODEL_ORDER
         value: "gemini,mistral,groq"
-      - key: MISTRAL_API_KEY        # free tier — enables the mistral rung (text + Pixtral vision)
+      - key: MISTRAL_API_KEY        # free tier — enables the mistral rung (Ministral-3B, multimodal)
         sync: false
-      - key: GROQ_API_KEY           # free tier — enables the groq rung (gpt-oss-120b text + Llama-4 vision)
+      - key: GROQ_API_KEY           # free tier — enables the groq rung (gpt-oss-120b text + Qwen-VL scans)
         sync: false
       # OpenRouter (openai_compat) is supported but off by default. To enable, add
       # 'openai_compat' to AUDIT_MODEL_ORDER and set OPENAI_COMPAT_API_KEY / _BASE_URL / _MODEL.
