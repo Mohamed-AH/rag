@@ -109,3 +109,16 @@ def test_last_provider_error_propagates() -> None:
 def test_empty_ladder_raises() -> None:
     with pytest.raises(RuntimeError, match="no audit model providers"):
         _analyzer([]).analyze("invoice.txt", _content(), CUSTOMS_CHECKLIST)
+
+
+def test_multipage_prompt_instructs_reading_every_page() -> None:
+    from ragchat.audit.analyzer import _prompt
+    from ragchat.audit.manifest import CUSTOMS_CHECKLIST
+
+    single = _prompt(CUSTOMS_CHECKLIST)
+    assert "page images" not in single  # no page-count nudge for the text path
+
+    multi = _prompt(CUSTOMS_CHECKLIST, page_count=4)
+    assert "4 page images" in multi
+    assert "examine ALL 4 pages" in multi.replace("  ", " ")
+    assert "Never stop after the first page" in multi

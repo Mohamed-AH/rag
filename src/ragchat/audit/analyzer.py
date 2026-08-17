@@ -105,17 +105,30 @@ class _AnalysisResult(BaseModel):
     )
 
 
-def _prompt(checklist: Checklist) -> str:
+def _prompt(checklist: Checklist, *, page_count: int | None = None) -> str:
     lines = []
     for dt in checklist.doc_types:
         fields = "; ".join(f"{s.name} ({s.description})" for s in dt.fields) or "(no fields)"
         lines.append(f"- {dt.id} — {dt.name}: {fields}")
     catalogue = "\n".join(lines)
+    # When the file arrives as page images, state the count and insist every page is read —
+    # weaker vision models otherwise tend to describe only the first image and stop, which
+    # would make later documents look "missing".
+    pages_note = ""
+    if page_count and page_count > 1:
+        pages_note = (
+            f"You have been given {page_count} page images, in order (page 1 first). You MUST "
+            f"examine ALL {page_count} pages — a DIFFERENT document usually appears on each "
+            "page, so expect roughly one document per page unless a document clearly spans "
+            "several. Never stop after the first page; account for every page before you "
+            "answer.\n\n"
+        )
     return (
         "You are auditing a customs submission file that may contain ONE or MANY documents, "
         "in ANY page order. Pages of the same document may be non-contiguous (e.g. an invoice "
         "on pages 2 and 4 with a bill of lading on page 3). Do NOT assume documents appear in "
         "order or on consecutive pages — use the whole file at once.\n\n"
+        f"{pages_note}"
         "Work it out page by page:\n"
         "1. Scan every page for document anchor headers/titles (e.g. 'Commercial Invoice', "
         "'Packing List', 'Bill of Lading', 'Certificate of Origin') and distinct layouts.\n"
@@ -148,7 +161,8 @@ class StructuredAnalyzer:
     ) -> list[ClassifiedDocument]:
         from ragchat.rag.llm import build_document_message
 
-        message = build_document_message(_prompt(checklist), content)
+        page_count = len(content.media) if content.media else None
+        message = build_document_message(_prompt(checklist, page_count=page_count), content)
         result = self._invoke_with_fallback(self._select_models(content), message)
 
         known = checklist.doc_type_ids()
