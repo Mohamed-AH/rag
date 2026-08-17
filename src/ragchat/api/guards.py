@@ -52,6 +52,10 @@ class Guards:
     daily_budget: int  # shared-key asks/day across the instance (0 = unlimited)
     hash_salt: str  # salt for hashing client IPs before storing usage
     trusted_proxy_hops: int = 1  # reverse-proxy hops in front of the app (Render = 1)
+    # Audit path (metered separately; one audit = one model call per file). Default 0 so
+    # existing constructions (and tests) stay unlimited unless explicitly configured.
+    daily_audit_allowance: int = 0  # shared-key audits/day per user (0 = unlimited)
+    daily_audit_budget: int = 0  # shared-key audits/day across the instance (0 = unlimited)
 
     @classmethod
     def from_settings(cls, settings: Settings) -> Guards:
@@ -62,4 +66,6 @@ class Guards:
             daily_budget=settings.daily_request_budget,
             hash_salt=settings.usage_hash_salt.get_secret_value(),
             trusted_proxy_hops=settings.trusted_proxy_hops,
+            daily_audit_allowance=settings.daily_audit_free_allowance,
+            daily_audit_budget=settings.daily_audit_budget,
         )

@@ -239,6 +239,7 @@ cascade from `sessions`).
 ## Possible next steps
 
 - Confidence-threshold calibration against a larger real-document eval set.
-- Budget-metering the audit path (currently gated only by the ingest burst limiter).
+- A shared multi-instance store (Redis) for the rate-limit counters if the app scales past
+  one worker (the burst window is currently in-memory per instance).
 - Weight↔quantity reconciliation (a derived cross-metric rule) and more verticals.
 - Streaming token responses from `/ask`; pgvector HNSW tuning if the Ask corpus grows.

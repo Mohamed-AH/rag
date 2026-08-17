@@ -120,8 +120,12 @@ hermetic eval `tests/eval/` (gold Customs packets, precision/recall gate at 1.0)
 
 - Added `audit/evidence.py` (plan folded input types into `engine.py`) to keep imports a DAG.
 - Added `FieldSpec` + `Checklist.fields_for` to the checklist (extraction schema as data).
-- `/audit` is gated by the **ingest** burst limiter and is **not** counted against
-  `DAILY_REQUEST_BUDGET` (that only meters `/ask`). Revisit metering in Phase 2/3.
+- `/audit` has its **own** guard (`guard_audit`, 2026-08-17): IP-keyed burst limit +
+  durable per-IP daily allowance (`DAILY_AUDIT_FREE_ALLOWANCE`) + instance-wide daily
+  ceiling (`DAILY_AUDIT_BUDGET`), all keyed on the **hashed client IP** (not the client-set
+  cookie) so dropping the cookie can't reset it. Metered separately from `/ask` because one
+  audit = one model call per file. BYO Google key bypasses. (`DAILY_REQUEST_BUDGET` still
+  meters `/ask` only.)
 - UI *was* an Ask/Audit **mode toggle**; as of the 2026-08-16 overhaul the web app is
   **auditor-only** and Ask is reachable only via API/CLI.
 
@@ -132,7 +136,6 @@ hermetic eval `tests/eval/` (gold Customs packets, precision/recall gate at 1.0)
   live testing. This is the #1 thing live testing must confirm.
 - Confidence thresholds are constants (`min_classification_confidence=0.5`,
   `RuleContext.min_field_confidence=0.5`, `value_tolerance=0.01`) — untuned against real docs.
-- Audit calls aren't budget-metered (cost exposure under load).
 - One packet = one audit; no re-audit/history surfacing beyond persistence.
 - Extraction schema returns `value` as string; numeric rules parse leniently.
 
@@ -329,5 +332,28 @@ corrected. Added a full accept/override review layer, backend + UI + docs:
   `test_review_api.py` (HTTP). 160 pass; ruff + mypy --strict clean.
 
 The pivot's Phase 3 (reviewer workflow) is complete. Natural follow-ups: threshold
-calibration against a larger real-document eval set; budget-metering the audit path;
-weight↔quantity reconciliation; more verticals.
+calibration against a larger real-document eval set; weight↔quantity reconciliation;
+more verticals.
+
+### Audit-path abuse hardening (2026-08-17) — pre-launch
+
+Before going live, closed a real gap: `/audit` (the expensive path — one Gemini call per
+file on the shared key) was gated **only** by the ingest burst limiter, which is keyed on
+the client-set **session cookie** → an abuser dropping the cookie got a fresh session each
+request and effectively unlimited audits; and `/audit` was not metered against any daily
+budget. Fix — new `guard_audit` on `POST /audit`:
+- **IP-keyed** burst limit + durable per-IP daily allowance (`DAILY_AUDIT_FREE_ALLOWANCE`,
+  default 15) + instance-wide daily ceiling (`DAILY_AUDIT_BUDGET`, default 150), all keyed
+  on the salted-hashed client IP (via `_ip_scope`), counters in the same `usage_counters`
+  table (so TTL purge cleans them up). Scopes `audit_ip:<hash>` / `audit_global`.
+- **BYO Google-only key bypasses** (spends the caller's own quota; audit needs no Cohere).
+- New `Guards.daily_audit_allowance/daily_audit_budget` (default 0 = unlimited so existing
+  Guards constructions/tests are unaffected); `render.yaml` sets the prod values and adds
+  `USAGE_HASH_SALT` as a dashboard secret (default is `change-me-in-prod`).
+- Tests: IP-keying can't be reset by dropping the cookie, instance budget caps everyone,
+  BYO key bypasses. 163 pass; ruff + mypy --strict clean. Docs: DEPLOY.md limits table +
+  section, ARCHITECTURE/CLAUDE deviations updated.
+
+The live `GOOGLE_API_KEY` is a **free-tier** key, so the provider quota is itself the hard
+cost ceiling (abuse → `RESOURCE_EXHAUSTED` → 429, no bill); this hardening keeps abuse from
+starving that shared quota out from under legit users. A billed key would make it critical.

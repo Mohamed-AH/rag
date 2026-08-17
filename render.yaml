@@ -19,10 +19,18 @@ services:
         sync: false
       - key: GOOGLE_API_KEY
         sync: false
+      - key: USAGE_HASH_SALT          # salt for hashing client IPs in the rate-limit counters
+        sync: false                    # set a real secret in the dashboard (not the default)
       - key: SESSION_TTL_HOURS
         value: "24"
       - key: DAILY_REQUEST_BUDGET
-        value: "1000"
+        value: "1000"                # instance-wide /ask budget per day
+      # Audit path is metered separately (one audit = one model call per file) and keyed on
+      # hashed client IP, so dropping the session cookie can't reset it. Tune to taste.
+      - key: DAILY_AUDIT_FREE_ALLOWANCE
+        value: "15"                  # shared-key audits/day per IP before BYO key is required
+      - key: DAILY_AUDIT_BUDGET
+        value: "150"                 # instance-wide audit ceiling per day (free-tier safety)
       - key: MAX_UPLOAD_BYTES
         value: "2097152"           # 2 MiB
       # --- Packet auditor (Phase 1) ---
