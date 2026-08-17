@@ -14,7 +14,14 @@ from typing import Any, cast
 from sqlalchemy import CursorResult, delete, func, select
 from sqlalchemy.orm import Session as DbSession
 
-from ragchat.db.models import KnowledgeBase, Packet, PacketDocument, Session, UsageCounter
+from ragchat.db.models import (
+    KnowledgeBase,
+    Packet,
+    PacketDocument,
+    PacketFinding,
+    Session,
+    UsageCounter,
+)
 from ragchat.ingestion.parser import Section
 
 # --- Sessions -------------------------------------------------------------
@@ -143,6 +150,103 @@ def delete_packet(db: DbSession, session_id: str, packet_id: str) -> None:
     if packet is not None:
         db.delete(packet)
         db.flush()
+
+
+# --- Packet findings (persisted Gap Report + reviewer decisions) ----------
+
+
+def add_packet_finding(
+    db: DbSession,
+    *,
+    packet_id: str,
+    position: int,
+    requirement_id: str,
+    status: str,
+    summary: str,
+    confidence: float,
+    sources: list[Any] | None = None,
+) -> PacketFinding:
+    """Persist one machine finding of a packet's Gap Report (review columns start null)."""
+    finding = PacketFinding(
+        packet_id=packet_id,
+        position=position,
+        requirement_id=requirement_id,
+        status=status,
+        summary=summary,
+        confidence=confidence,
+        sources=sources,
+    )
+    db.add(finding)
+    db.flush()
+    return finding
+
+
+def recent_packets(db: DbSession, session_id: str, limit: int = 25) -> list[Packet]:
+    """Return this session's most recent packets (newest first), for the history list."""
+    stmt = (
+        select(Packet)
+        .where(Packet.session_id == session_id)
+        .order_by(Packet.created_at.desc(), Packet.id.desc())
+        .limit(limit)
+    )
+    return list(db.execute(stmt).scalars().all())
+
+
+def list_packet_findings(db: DbSession, session_id: str, packet_id: str) -> list[PacketFinding]:
+    """Return a packet's findings in report order, only if it belongs to ``session_id``."""
+    stmt = (
+        select(PacketFinding)
+        .join(Packet, PacketFinding.packet_id == Packet.id)
+        .where(Packet.id == packet_id, Packet.session_id == session_id)
+        .order_by(PacketFinding.position, PacketFinding.id)
+    )
+    return list(db.execute(stmt).scalars().all())
+
+
+def findings_for_packets(db: DbSession, packet_ids: Sequence[str]) -> list[PacketFinding]:
+    """Return findings for the given packets in one query (caller has already scoped them)."""
+    if not packet_ids:
+        return []
+    stmt = (
+        select(PacketFinding)
+        .where(PacketFinding.packet_id.in_(list(packet_ids)))
+        .order_by(PacketFinding.packet_id, PacketFinding.position, PacketFinding.id)
+    )
+    return list(db.execute(stmt).scalars().all())
+
+
+def get_packet_finding(
+    db: DbSession, session_id: str, packet_id: str, requirement_id: str
+) -> PacketFinding | None:
+    """Return one finding by requirement id, only if its packet belongs to ``session_id``."""
+    stmt = (
+        select(PacketFinding)
+        .join(Packet, PacketFinding.packet_id == Packet.id)
+        .where(
+            Packet.id == packet_id,
+            Packet.session_id == session_id,
+            PacketFinding.requirement_id == requirement_id,
+        )
+    )
+    return db.execute(stmt).scalar_one_or_none()
+
+
+def apply_finding_review(
+    db: DbSession,
+    finding: PacketFinding,
+    *,
+    action: str,
+    status: str,
+    note: str | None,
+    reviewed_at: datetime,
+) -> PacketFinding:
+    """Write a reviewer's decision onto a persisted finding (machine columns untouched)."""
+    finding.review_action = action
+    finding.review_status = status
+    finding.review_note = note
+    finding.reviewed_at = reviewed_at
+    db.flush()
+    return finding
 
 
 # --- Usage counters (durable daily metering) ------------------------------

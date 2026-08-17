@@ -94,6 +94,11 @@ class Packet(Base):
         cascade="all, delete-orphan",
         passive_deletes=True,
     )
+    findings: Mapped[list[PacketFinding]] = relationship(
+        back_populates="packet",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
 
     def __repr__(self) -> str:  # pragma: no cover - debugging aid
         return f"Packet(id={self.id!r}, session_id={self.session_id!r})"
@@ -126,6 +131,43 @@ class PacketDocument(Base):
 
     def __repr__(self) -> str:  # pragma: no cover - debugging aid
         return f"PacketDocument(id={self.id!r}, packet_id={self.packet_id!r})"
+
+
+class PacketFinding(Base):
+    """One requirement's audit outcome, persisted so a packet can be re-opened and reviewed.
+
+    The machine verdict (``status`` / ``summary`` / ``confidence`` / ``sources``) is
+    written once at audit time and never mutated. A reviewer's decision lives in the
+    nullable ``review_*`` columns: ``review_action`` is ``accept`` or ``override``,
+    ``review_status`` is the effective status the reviewer chose, and ``reviewed_at``
+    stamps when. ``position`` preserves the report's original ordering.
+    """
+
+    __tablename__ = "packet_findings"
+    __table_args__ = (Index("ix_packet_findings_packet_id", "packet_id"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    packet_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("packets.id", ondelete="CASCADE"), nullable=False
+    )
+    position: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    requirement_id: Mapped[str] = mapped_column(Text, nullable=False)
+    status: Mapped[str] = mapped_column(String(16), nullable=False)
+    summary: Mapped[str] = mapped_column(Text, nullable=False)
+    confidence: Mapped[float] = mapped_column(Float, nullable=False)
+    sources: Mapped[list[Any] | None] = mapped_column(JSON, nullable=True)
+    review_action: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    review_status: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    review_note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+    packet: Mapped[Packet] = relationship(back_populates="findings")
+
+    def __repr__(self) -> str:  # pragma: no cover - debugging aid
+        return f"PacketFinding(id={self.id!r}, requirement_id={self.requirement_id!r})"
 
 
 class UsageCounter(Base):

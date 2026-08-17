@@ -29,11 +29,14 @@ from ragchat.api.schemas import (
     AskRequest,
     AskResponse,
     AuditResponse,
+    AuditSummarySchema,
     ChecklistOption,
     GapReportSchema,
     HealthResponse,
     IngestResponse,
+    ReviewRequest,
     SourceSchema,
+    StoredAuditSchema,
 )
 from ragchat.db import repository
 from ragchat.errors import (
@@ -44,7 +47,14 @@ from ragchat.errors import (
     UnknownChecklistError,
     UnsupportedFileTypeError,
 )
-from ragchat.service import AuditService, RAGService, build_audit_service, build_session_service
+from ragchat.service import (
+    AuditReviewService,
+    AuditService,
+    RAGService,
+    build_audit_review_service,
+    build_audit_service,
+    build_session_service,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -121,6 +131,16 @@ def get_audit_service(
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
         ) from exc
+
+
+def get_audit_review_service(
+    session_id: str = Depends(get_session_id),
+) -> AuditReviewService:
+    """Build a session-scoped review service (relational only; no keys).
+
+    Overridden in tests to inject a fake.
+    """
+    return build_audit_review_service(session_id)
 
 
 def get_db_session_factory() -> Callable[[], DbSession]:
@@ -415,4 +435,102 @@ async def audit_packet(
         checklist_id=result.checklist_id,
         report=GapReportSchema.from_report(result.report),
         request_summary=render_request(result.report, checklist_name=checklist_name),
+    )
+
+
+def _checklist_name(checklist_id: str) -> str:
+    """Best-effort display name for a checklist id (falls back to the id itself)."""
+    from ragchat.audit.manifest import get_checklist
+
+    try:
+        return get_checklist(checklist_id).name
+    except UnknownChecklistError:
+        return checklist_id
+
+
+@router.get("/audits", response_model=list[AuditSummarySchema], tags=["audit"])
+def list_audits(
+    service: AuditReviewService = Depends(get_audit_review_service),
+) -> list[AuditSummarySchema]:
+    """This session's recent audits (newest first), with effective, post-review counts."""
+    return [
+        AuditSummarySchema.from_summary(s, checklist_name=_checklist_name(s.checklist_id))
+        for s in service.list_audits()
+    ]
+
+
+@router.get("/audits/{packet_id}", response_model=StoredAuditSchema, tags=["audit"])
+def get_audit(
+    packet_id: str,
+    service: AuditReviewService = Depends(get_audit_review_service),
+) -> StoredAuditSchema:
+    """Re-open one past audit with any reviewer decisions applied (404 if not this session's)."""
+    from ragchat.audit.export import render_request
+
+    stored = service.get_audit(packet_id)
+    if stored is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Audit not found.")
+    checklist_name = _checklist_name(stored.checklist_id)
+    return StoredAuditSchema.from_stored(
+        stored,
+        checklist_name=checklist_name,
+        request_summary=render_request(stored.report, checklist_name=checklist_name),
+    )
+
+
+@router.post(
+    "/audits/{packet_id}/findings/{requirement_id}/review",
+    response_model=StoredAuditSchema,
+    tags=["audit"],
+)
+def review_finding(
+    packet_id: str,
+    requirement_id: str,
+    body: ReviewRequest,
+    service: AuditReviewService = Depends(get_audit_review_service),
+) -> StoredAuditSchema:
+    """Accept or override one finding's verdict; returns the refreshed audit.
+
+    Accepting confirms the machine; overriding sets a different status (and must change it).
+    Scoped to the session, so only your own audits can be reviewed.
+    """
+    from ragchat.audit.export import render_request
+    from ragchat.audit.report import FindingStatus
+    from ragchat.audit.review import ReviewAction
+
+    try:
+        action = ReviewAction(body.action)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"Unknown review action {body.action!r}.",
+        ) from exc
+    review_status: FindingStatus | None = None
+    if body.status is not None:
+        try:
+            review_status = FindingStatus(body.status)
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=f"Unknown status {body.status!r}.",
+            ) from exc
+
+    try:
+        stored = service.review_finding(
+            packet_id, requirement_id, action=action, status=review_status, note=body.note
+        )
+    except LookupError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Finding not found."
+        ) from exc
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
+        ) from exc
+
+    checklist_name = _checklist_name(stored.checklist_id)
+    return StoredAuditSchema.from_stored(
+        stored,
+        checklist_name=checklist_name,
+        request_summary=render_request(stored.report, checklist_name=checklist_name),
     )
