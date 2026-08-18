@@ -170,3 +170,31 @@ def test_rung_image_cap_packs_pages_before_invoke() -> None:
         "scan.pdf", content, CUSTOMS_CHECKLIST
     )
     assert seen_counts == [3]  # 5 pages packed into exactly 3 images, none dropped
+
+
+def test_rung_structured_method_is_passed_through() -> None:
+    from ragchat.rag.providers import Rung
+
+    seen: list[Any] = []
+
+    class _Model:
+        def with_structured_output(self, _schema: Any, **kwargs: Any) -> _FakeStructured:
+            seen.append(kwargs.get("method", "DEFAULT"))
+            return _FakeStructured(
+                _AnalysisResult(
+                    documents=[_DocResult(doc_type="commercial_invoice", confidence=0.9, pages=[1])]
+                ),
+                None,
+            )
+
+    StructuredAnalyzer(lambda _c: [Rung(_Model(), structured_method="json_schema")]).analyze(
+        "invoice.txt", _content(), CUSTOMS_CHECKLIST
+    )
+    assert seen == ["json_schema"]
+
+
+def test_tool_use_failed_falls_over() -> None:
+    # Groq's 'tool_use_failed' (a vision model that can't tool-call) should fall to the next rung.
+    primary = _FakeModel(exc=RuntimeError("400 tool_use_failed: Failed to call a function"))
+    out = _analyzer([primary, _good()]).analyze("invoice.txt", _content(), CUSTOMS_CHECKLIST)
+    assert [d.doc_type for d in out] == ["commercial_invoice"]

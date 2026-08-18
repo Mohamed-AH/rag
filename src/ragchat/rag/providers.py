@@ -71,6 +71,16 @@ def _no_models(settings: Settings) -> dict[str, str | None]:
     return {"text": None, "vision": None}
 
 
+def _no_method(settings: Settings) -> str | None:
+    return None
+
+
+def _normalize_method(value: str | None) -> str | None:
+    """Map the config's structured-output method to a LangChain method (or None for default)."""
+    v = (value or "").strip().lower()
+    return None if v in ("", "default", "auto", "function_calling") else v
+
+
 @dataclass(frozen=True)
 class Rung:
     """One built rung of the ladder: a chat model plus its per-request image cap (if any).
@@ -82,6 +92,9 @@ class Rung:
 
     model: Any
     max_images: int | None = None
+    # How to ask for structured output: None = LangChain default (tool/function calling);
+    # a string ("json_schema"/"json_mode") for models that can't do tool calls.
+    structured_method: str | None = None
 
 
 @dataclass(frozen=True)
@@ -97,6 +110,8 @@ class _Provider:
     describe: Callable[[Settings], dict[str, str | None]] = field(default=_no_models)
     # Max images this provider accepts per request (None = no meaningful cap).
     max_images: int | None = None
+    # Structured-output method override, resolved from settings (None = LangChain default).
+    structured_method: Callable[[Settings], str | None] = field(default=_no_method)
 
 
 def _retry_kwargs(max_retries: int | None) -> dict[str, int]:
@@ -180,6 +195,8 @@ _REGISTRY: dict[str, _Provider] = {
         build_vision=lambda s, r: _build_groq(s, s.groq_vision_model, r),
         describe=lambda s: {"text": s.groq_model, "vision": s.groq_vision_model},
         max_images=3,  # Groq's Qwen-VL rejects more than 3 images per request
+        # Groq's vision model can't do tool/function calling; use json_schema (env-tunable).
+        structured_method=lambda s: _normalize_method(s.groq_structured_method),
     ),
     "openai_compat": _Provider(
         id="openai_compat",
@@ -237,9 +254,12 @@ def build_audit_ladder(
         provider = reg.get(pid)
         if provider is None or not provider.available(settings):
             continue
-        text.append(Rung(provider.build_text(settings, max_retries), provider.max_images))
+        method = provider.structured_method(settings)
+        text.append(Rung(provider.build_text(settings, max_retries), provider.max_images, method))
         if provider.multimodal:
-            vision.append(Rung(provider.build_vision(settings, max_retries), provider.max_images))
+            vision.append(
+                Rung(provider.build_vision(settings, max_retries), provider.max_images, method)
+            )
     return text, vision
 
 

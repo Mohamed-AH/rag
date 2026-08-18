@@ -126,6 +126,13 @@ class Settings(BaseSettings):
     # scan path uses a separate multimodal Groq model (Qwen-VL, the vision model on Groq).
     groq_model: str = Field(default="openai/gpt-oss-120b")
     groq_vision_model: str = Field(default="qwen/qwen3.6-27b")
+    groq_structured_method: str = Field(
+        default="json_schema",
+        description="How Groq is asked for structured output. Groq's vision model (Qwen-VL) "
+        "can't do tool/function calling, which is LangChain's default and fails with "
+        "'tool_use_failed' — so use 'json_schema' (or 'json_mode'). Set to 'default'/'' to let "
+        "LangChain choose (function calling).",
+    )
     openai_compat_api_key: SecretStr | None = Field(
         default=None,
         description="API key for any OpenAI-compatible endpoint (e.g. OpenRouter). Enables "

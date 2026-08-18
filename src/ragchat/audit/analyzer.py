@@ -52,6 +52,10 @@ _RETRYABLE_MARKERS: tuple[str, ...] = (
     "timeout",
     "timed out",
     "try again",
+    # A model that can't satisfy the structured-output request (e.g. a vision model that
+    # can't do tool calling → Groq's 'tool_use_failed') — try the next, stronger rung.
+    "tool_use_failed",
+    "failed to call a function",
 )
 
 
@@ -226,8 +230,13 @@ class StructuredAnalyzer:
             page_count = len(rung_content.media) if rung_content.media else None
             prompt = _prompt(checklist, page_count=page_count)
             message = build_document_message(prompt, rung_content)
+            method = getattr(rung, "structured_method", None)
             try:
-                structured = model.with_structured_output(_AnalysisResult)
+                structured = (
+                    model.with_structured_output(_AnalysisResult, method=method)
+                    if method
+                    else model.with_structured_output(_AnalysisResult)
+                )
                 result: _AnalysisResult = structured.invoke([message])
                 return result
             except Exception as exc:

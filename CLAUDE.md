@@ -76,7 +76,10 @@ Pure domain package `src/ragchat/audit/` — clean DAG, no I/O:
   max_images)`; **Groq's Qwen-VL caps images at 3/request**, so the analyzer packs a scan's
   pages into ≤`max_images` composite PNGs per rung (`extractors.pack_images`) — a page limit
   never drops a document; Gemini/Mistral are uncapped. Message is built **per rung** so each
-  rung's cap (and page-count prompt) applies.
+  rung's cap (and page-count prompt) applies. Rungs also carry a `structured_method` — Groq's
+  Qwen-VL can't tool-call (LangChain's default → `tool_use_failed`), so Groq uses
+  **`json_schema`** (env `GROQ_STRUCTURED_METHOD`); `_is_retryable` also treats
+  `tool_use_failed` as fail-over-worthy.
 
 Pipeline & surfaces:
 - `ingestion/router.py` — `route()` picks text path (wraps existing `extractors.py`) vs

@@ -181,3 +181,31 @@ def test_describe_audit_ladder_is_non_secret_snapshot() -> None:
 )
 def test_retryable_error_detection(exc: Exception, expected: bool) -> None:
     assert is_retryable_provider_error(exc) is expected
+
+
+def test_groq_rung_uses_json_schema_structured_method() -> None:
+    # Groq's vision model can't tool-call; the rung must carry a non-default structured method.
+    from ragchat.rag.providers import _normalize_method
+
+    settings = _real_settings(order="groq", groq_api_key="gk")
+    # Fake registry mirroring groq's config resolver, so no SDK import is needed.
+    groq = _Provider(
+        id="groq",
+        multimodal=True,
+        available=lambda s: s.groq_api_key is not None,
+        build_text=lambda s, r: "groq:text",
+        build_vision=lambda s, r: "groq:vision",
+        structured_method=lambda s: _normalize_method(s.groq_structured_method),
+    )
+    _text, vision = build_audit_ladder(settings, registry={"groq": groq})
+    assert vision[0].structured_method == "json_schema"  # from the default config
+
+
+def test_normalize_method_maps_defaults_to_none() -> None:
+    from ragchat.rag.providers import _normalize_method
+
+    assert _normalize_method("json_schema") == "json_schema"
+    assert _normalize_method("json_mode") == "json_mode"
+    assert _normalize_method("") is None
+    assert _normalize_method("default") is None
+    assert _normalize_method("function_calling") is None  # the LangChain default
