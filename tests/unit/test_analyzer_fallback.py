@@ -122,3 +122,51 @@ def test_multipage_prompt_instructs_reading_every_page() -> None:
     assert "4 page images" in multi
     assert "examine ALL 4 pages" in multi.replace("  ", " ")
     assert "Never stop after the first page" in multi
+
+
+def test_rung_image_cap_packs_pages_before_invoke() -> None:
+    # A rung with max_images=3 must receive at most 3 image parts even for a 5-page scan —
+    # pages are packed into composites, never dropped.
+    import io
+
+    import pypdfium2 as pdfium
+    from pypdf import PdfWriter
+
+    from ragchat.ingestion.router import IMAGE, DocumentContent, MediaPart
+    from ragchat.rag.providers import Rung
+
+    # Build 5 real PNG page images.
+    writer = PdfWriter()
+    for _ in range(5):
+        writer.add_blank_page(width=200, height=260)
+    buf = io.BytesIO()
+    writer.write(buf)
+    doc = pdfium.PdfDocument(buf.getvalue())
+    pngs = []
+    for i in range(5):
+        b = io.BytesIO()
+        doc[i].render(scale=1.0).to_pil().convert("RGB").save(b, "PNG")
+        pngs.append(b.getvalue())
+    content = DocumentContent(
+        filename="scan.pdf", mode=IMAGE, media=tuple(MediaPart("image/png", p) for p in pngs)
+    )
+
+    seen_counts: list[int] = []
+    one_doc = _AnalysisResult(
+        documents=[_DocResult(doc_type="commercial_invoice", confidence=0.9, pages=[1])]
+    )
+
+    class _Struct:
+        def invoke(self, messages: Any) -> _AnalysisResult:
+            blocks = [b for b in messages[0].content if b["type"] == "image_url"]
+            seen_counts.append(len(blocks))  # 1 text block + N image blocks
+            return one_doc
+
+    class _Recorder:
+        def with_structured_output(self, _schema: Any) -> _Struct:
+            return _Struct()
+
+    StructuredAnalyzer(lambda _c: [Rung(_Recorder(), max_images=3)]).analyze(
+        "scan.pdf", content, CUSTOMS_CHECKLIST
+    )
+    assert seen_counts == [3]  # 5 pages packed into exactly 3 images, none dropped

@@ -36,38 +36,42 @@ def _settings(order: str, **flags: Any) -> SimpleNamespace:
     return SimpleNamespace(audit_model_order=order, **flags)
 
 
+def _models(rungs: list[Any]) -> list[Any]:
+    return [rung.model for rung in rungs]
+
+
 def test_full_ladder_in_order() -> None:
     settings = _settings("gemini,mistral,groq", has_gemini=True, has_mistral=True, has_groq=True)
     text, vision = build_audit_ladder(settings, registry=_REGISTRY)
-    assert text == ["gemini:text", "mistral:text", "groq:text"]
-    assert vision == ["gemini:vision", "mistral:vision", "groq:vision"]
+    assert _models(text) == ["gemini:text", "mistral:text", "groq:text"]
+    assert _models(vision) == ["gemini:vision", "mistral:vision", "groq:vision"]
 
 
 def test_missing_keys_are_skipped() -> None:
     # Only Gemini configured (its key is required config, so it's always available).
     settings = _settings("gemini,mistral,groq", has_gemini=True)
     text, vision = build_audit_ladder(settings, registry=_REGISTRY)
-    assert text == ["gemini:text"]
-    assert vision == ["gemini:vision"]
+    assert _models(text) == ["gemini:text"]
+    assert _models(vision) == ["gemini:vision"]
 
 
 def test_order_is_respected() -> None:
     settings = _settings("groq,gemini", has_gemini=True, has_groq=True)
     text, _vision = build_audit_ladder(settings, registry=_REGISTRY)
-    assert text == ["groq:text", "gemini:text"]
+    assert _models(text) == ["groq:text", "gemini:text"]
 
 
 def test_unknown_provider_id_is_ignored() -> None:
     settings = _settings("gemini,nope,mistral", has_gemini=True, has_mistral=True)
     text, _vision = build_audit_ladder(settings, registry=_REGISTRY)
-    assert text == ["gemini:text", "mistral:text"]
+    assert _models(text) == ["gemini:text", "mistral:text"]
 
 
 def test_vision_ladder_drops_non_multimodal_providers() -> None:
     settings = _settings("gemini,textonly", has_gemini=True, has_textonly=True)
     text, vision = build_audit_ladder(settings, registry=_REGISTRY)
-    assert text == ["gemini:text", "textonly:text"]  # text path keeps both
-    assert vision == ["gemini:vision"]  # scan path drops the text-only provider
+    assert _models(text) == ["gemini:text", "textonly:text"]  # text path keeps both
+    assert _models(vision) == ["gemini:vision"]  # scan path drops the text-only provider
 
 
 def _real_settings(order: str = "gemini,mistral,groq", **overrides: Any) -> Any:
@@ -104,8 +108,8 @@ def test_byo_restricts_to_the_supplied_provider() -> None:
     # caller's key — the operator's Gemini is never used.
     settings = _real_settings()
     text, vision = build_audit_ladder(settings, byo_keys={"groq": "gk"}, registry=_BYO_REGISTRY)
-    assert text == ["groq:text"]
-    assert vision == ["groq:vision"]
+    assert _models(text) == ["groq:text"]
+    assert _models(vision) == ["groq:vision"]
 
 
 def test_byo_multiple_keys_follow_configured_order() -> None:
@@ -113,7 +117,8 @@ def test_byo_multiple_keys_follow_configured_order() -> None:
     text, _vision = build_audit_ladder(
         settings, byo_keys={"groq": "g", "mistral": "m"}, registry=_BYO_REGISTRY
     )
-    assert text == ["mistral:text", "groq:text"]  # AUDIT_MODEL_ORDER order, operator Gemini absent
+    # AUDIT_MODEL_ORDER order, and the operator's Gemini is absent (not a supplied key).
+    assert _models(text) == ["mistral:text", "groq:text"]
 
 
 def test_real_registry_capability_flags() -> None:
@@ -123,6 +128,27 @@ def test_real_registry_capability_flags() -> None:
     assert _REGISTRY["gemini"].multimodal is True
     assert _REGISTRY["mistral"].multimodal is True
     assert _REGISTRY["groq"].multimodal is True
+    # Groq's Qwen-VL caps images per request; the others have no meaningful cap.
+    assert _REGISTRY["groq"].max_images == 3
+    assert _REGISTRY["gemini"].max_images is None
+    assert _REGISTRY["mistral"].max_images is None
+
+
+def test_ladder_carries_per_provider_image_cap() -> None:
+    # A provider's max_images propagates onto its built Rung, so the analyzer can pack pages.
+    capped = _Provider(
+        id="capped",
+        multimodal=True,
+        available=lambda s: True,
+        build_text=lambda s, r: "capped:text",
+        build_vision=lambda s, r: "capped:vision",
+        max_images=3,
+    )
+    registry = {"gemini": _prov("gemini", True, "has_gemini"), "capped": capped}
+    settings = _settings("gemini,capped", has_gemini=True)
+    _text, vision = build_audit_ladder(settings, registry=registry)
+    caps = {rung.model: rung.max_images for rung in vision}
+    assert caps == {"gemini:vision": None, "capped:vision": 3}
 
 
 def test_describe_audit_ladder_is_non_secret_snapshot() -> None:

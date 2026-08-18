@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Callable
+from dataclasses import replace
 from typing import Any, Protocol
 
 from langchain_core.exceptions import OutputParserException
@@ -52,6 +53,22 @@ _RETRYABLE_MARKERS: tuple[str, ...] = (
     "timed out",
     "try again",
 )
+
+
+def _cap_images(content: DocumentContent, max_images: int | None) -> DocumentContent:
+    """Pack a scan's page images into at most ``max_images`` composites, if the rung caps them.
+
+    A no-op unless the content is image-mode with more parts than the cap (and only scanned
+    multi-page PDFs ever produce many image parts). Packing stacks pages into composite PNGs,
+    so a provider's page limit never drops a document — every page still reaches the model.
+    """
+    from ragchat.ingestion.extractors import pack_images
+    from ragchat.ingestion.router import IMAGE, MediaPart
+
+    if content.mode != IMAGE or not max_images or len(content.media) <= max_images:
+        return content
+    packed = pack_images([part.data for part in content.media], max_images)
+    return replace(content, media=tuple(MediaPart("image/png", png) for png in packed))
 
 
 def _is_retryable(exc: BaseException) -> bool:
@@ -159,11 +176,7 @@ class StructuredAnalyzer:
     def analyze(
         self, doc_id: str, content: DocumentContent, checklist: Checklist
     ) -> list[ClassifiedDocument]:
-        from ragchat.rag.llm import build_document_message
-
-        page_count = len(content.media) if content.media else None
-        message = build_document_message(_prompt(checklist, page_count=page_count), content)
-        result = self._invoke_with_fallback(self._select_models(content), message)
+        result = self._invoke_with_fallback(self._select_models(content), content, checklist)
 
         known = checklist.doc_type_ids()
         multi = len(result.documents) > 1
@@ -189,28 +202,42 @@ class StructuredAnalyzer:
             out.append(ClassifiedDocument(doc_id=doc_id, doc_type=None, confidence=0.0))
         return out
 
-    def _invoke_with_fallback(self, candidates: list[Any], message: Any) -> _AnalysisResult:
-        """Run the structured call on the first model; on a retryable failure, try the next.
+    def _invoke_with_fallback(
+        self, rungs: list[Any], content: DocumentContent, checklist: Checklist
+    ) -> _AnalysisResult:
+        """Run the structured call on the first rung; on a retryable failure, try the next.
 
-        Only quota/rate/transient errors fall through (see :func:`_is_retryable`); any other
-        error, and the last model's error, propagate — so a genuine problem isn't masked by
-        pointlessly retrying every provider.
+        The message is built **per rung** so each provider's image cap is honoured — a packet
+        with more pages than the rung allows is packed into that many composite images (see
+        :func:`_cap_images`) rather than dropped. Only quota/rate/transient errors (and
+        malformed output) fall through (see :func:`_is_retryable`); any other error, and the
+        last rung's error, propagate — so a genuine problem isn't masked by retrying everyone.
+
+        Rungs may be :class:`~ragchat.rag.providers.Rung` objects (``.model``/``.max_images``)
+        or bare chat models (tests), so both attributes are read defensively.
         """
-        if not candidates:
+        from ragchat.rag.llm import build_document_message
+
+        if not rungs:
             raise RuntimeError("no audit model providers are configured")
-        for index, model in enumerate(candidates):
+        for index, rung in enumerate(rungs):
+            model = getattr(rung, "model", rung)
+            rung_content = _cap_images(content, getattr(rung, "max_images", None))
+            page_count = len(rung_content.media) if rung_content.media else None
+            prompt = _prompt(checklist, page_count=page_count)
+            message = build_document_message(prompt, rung_content)
             try:
                 structured = model.with_structured_output(_AnalysisResult)
                 result: _AnalysisResult = structured.invoke([message])
                 return result
             except Exception as exc:
-                is_last = index == len(candidates) - 1
+                is_last = index == len(rungs) - 1
                 if is_last or not _is_retryable(exc):
                     raise
                 logger.warning(
                     "audit model %d/%d failed (%s); falling back to the next provider",
                     index + 1,
-                    len(candidates),
+                    len(rungs),
                     type(exc).__name__,
                 )
         raise RuntimeError("unreachable: fallback loop exhausted without returning")
