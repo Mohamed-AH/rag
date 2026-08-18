@@ -45,20 +45,14 @@ services:
         value: "gemini-flash-lite-latest"
       - key: VISION_MODEL
         value: "gemini-flash-lite-latest"
-      # --- Audit model fallback ladder ---
-      # When Gemini's free quota is exhausted, the audit retries the same call on the next
-      # available provider. A rung engages only once its key (set below as a dashboard
-      # secret) is present, so the app runs on Gemini alone until you add them. Model ids
-      # are tunable here because free model names churn.
+      # --- Audit model ladder ---
+      # Gemini-only: the free Mistral/Groq vision models proved unreliable for this
+      # structured multi-document task in live testing, so they are off by default. Their
+      # adapters remain in the code — to re-enable a rung, add its id to AUDIT_MODEL_ORDER
+      # (e.g. "gemini,mistral,groq") and set the matching key(s):
+      #   MISTRAL_API_KEY · GROQ_API_KEY (+ GROQ_STRUCTURED_METHOD=json_schema) ·
+      #   OPENAI_COMPAT_API_KEY / _BASE_URL / _MODEL (any OpenAI-compatible endpoint).
       - key: AUDIT_MODEL_ORDER
-        value: "gemini,mistral,groq"
-      - key: MISTRAL_API_KEY        # free tier — enables the mistral rung (Ministral-3B, multimodal)
-        sync: false
-      - key: GROQ_API_KEY           # free tier — enables the groq rung (gpt-oss-120b text + Qwen-VL scans)
-        sync: false
-      - key: GROQ_STRUCTURED_METHOD # Qwen-VL can't tool-call; json_schema avoids 'tool_use_failed'
-        value: "json_schema"        # try 'json_mode' or 'default' if a model rejects json_schema
-      # OpenRouter (openai_compat) is supported but off by default. To enable, add
-      # 'openai_compat' to AUDIT_MODEL_ORDER and set OPENAI_COMPAT_API_KEY / _BASE_URL / _MODEL.
+        value: "gemini"
       - key: LOG_LEVEL
         value: "INFO"

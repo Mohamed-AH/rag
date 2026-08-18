@@ -65,8 +65,9 @@ Pure domain package `src/ragchat/audit/` — clean DAG, no I/O:
   (`ValidationError`/`OutputParserException` — a weak rung is failed over, not crashed) via
   `_is_retryable`.
 - `../rag/providers.py` — `build_audit_ladder(settings, *, byo_keys)` builds `(text, vision)`
-  ordered model ladders from `AUDIT_MODEL_ORDER` (default `gemini,mistral,groq`; `openai_compat`
-  supported but off by default); a rung is included only if its key/URL is set; providers
+  ordered model ladders from `AUDIT_MODEL_ORDER` (**default `gemini` only** — Mistral/Groq/
+  openai_compat adapters remain but are off by default after live testing; see 2026-08-18 log);
+  a rung is included only if its key/URL is set; providers
   imported **lazily**. **BYO**: `byo_keys` (any of `gemini`/`mistral`/`groq` → key) restricts
   the ladder to those providers on the caller's key (model_copy overlay; no operator keys spent).
   Groq text = `openai/gpt-oss-120b` (text-only), Groq scans = Qwen-VL (`qwen/qwen3.6-27b`).
@@ -460,3 +461,21 @@ ladder. Rasterize failure falls back to the raw `application/pdf` part (Gemini-o
 audit still runs on the primary. Deps add `pypdfium2`/`pillow` (+ mypy overrides). Tests:
 real blank PDF → N `image/png` parts, page cap, corrupt-PDF fallback. 191 pass; ruff + mypy
 clean. **Digital (text-layer) PDFs are unaffected** — they still take the cheap text path.
+
+### Fallbacks disabled — Gemini-only default (2026-08-18)
+
+Per operator decision after extensive live testing: **the free Mistral/Groq vision models
+are unreliable for this structured multi-document task** and are removed from the live
+ladder. Each surfaced a distinct real-world limitation (Mistral 422 on inline PDF → fixed by
+PNG rasterization; Groq string-`image_url` 400 → object form; Groq 3-image cap → page
+packing; Groq `tool_use_failed` → `json_schema`; Ministral-3B read only page 1 → prompt
+nudge). The *plumbing* now handles all of them, but the models themselves still under-perform
+Gemini on real packets.
+
+Change: `AUDIT_MODEL_ORDER` default → **`gemini`** (config + render.yaml, which also drops the
+Mistral/Groq key rows). The UI key panel reverts to a **Gemini-only** BYO input (the
+multi-provider picker is gone). **All provider adapters, tests, and the BYO backend headers
+remain** — the ladder is inert, not deleted, so re-enabling a rung is a one-line
+`AUDIT_MODEL_ORDER` + key change if a working free model ever appears. Gemini Flash-Lite reads
+the sample packets (digital + scanned, multi-doc) correctly, which is the proven path. 200
+tests pass; ruff + mypy clean.

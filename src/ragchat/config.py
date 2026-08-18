@@ -107,11 +107,12 @@ class Settings(BaseSettings):
     # Order and model ids are env-tunable so a churned free model can be swapped without a
     # redeploy. All fallbacks are OpenAI/LangChain-compatible and multimodal-capable.
     audit_model_order: str = Field(
-        default="gemini,mistral,groq",
+        default="gemini",
         description="Comma-separated provider ids forming the audit fallback ladder, primary "
-        "first. Providers without a configured key/URL are skipped. Ids: gemini, mistral, "
-        "groq, openai_compat (openai_compat is available but off by default — add it to the "
-        "order and set its key/URL to enable, e.g. an OpenRouter endpoint).",
+        "first. Default is Gemini-only: the free Mistral/Groq vision models proved unreliable "
+        "for this structured multi-document task in live testing, so they're off by default. "
+        "Their adapters remain available (ids: mistral, groq, openai_compat) — add an id here "
+        "and set its key/URL to re-enable a rung.",
     )
     mistral_api_key: SecretStr | None = Field(
         default=None, description="API key for Mistral (free tier). Enables the mistral rung."

@@ -77,35 +77,33 @@ All limits are environment variables you can change in the Render dashboard:
 | `DAILY_AUDIT_BUDGET` | `150` | Instance-wide shared-key audits/day — the audit cost ceiling (0 = off) |
 | `USAGE_HASH_SALT` | `change-me-in-prod` | Secret salt for hashing client IPs in usage counters; set a real value |
 | `TRUSTED_PROXY_HOPS` | `1` | Reverse-proxy hops in front of the app (Render = 1). The real client IP is read that many entries from the right of `X-Forwarded-For`, so client-prepended values can't spoof a fresh allowance. |
-| `AUDIT_MODEL_ORDER` | `gemini,mistral,groq` | Ordered audit fallback ladder (primary first). A rung is used only if its key is set. Add `openai_compat` to enable that rung. |
-| `MISTRAL_API_KEY` | _(unset)_ | Free Mistral key — enables the `mistral` rung. `MISTRAL_MODEL` (`ministral-3b-2512`) is a hybrid multimodal model, so it serves both text and scans. |
-| `GROQ_API_KEY` | _(unset)_ | Free Groq key — enables the `groq` rung (`GROQ_MODEL` text + `GROQ_VISION_MODEL` scans) |
-| `GROQ_MODEL` / `GROQ_VISION_MODEL` | `openai/gpt-oss-120b` / `qwen/qwen3.6-27b` | Groq text (gpt-oss-120b is text-only) and multimodal scan model (Qwen-VL) |
-| `OPENAI_COMPAT_API_KEY` / `OPENAI_COMPAT_BASE_URL` / `OPENAI_COMPAT_MODEL` | _(unset)_ / _(unset)_ / `qwen/…:free` | Any OpenAI-compatible endpoint (e.g. OpenRouter). Off by default; add `openai_compat` to `AUDIT_MODEL_ORDER` and set all three to enable. |
+| `AUDIT_MODEL_ORDER` | `gemini` | Ordered audit model ladder (primary first). Gemini-only by default; add `mistral`/`groq`/`openai_compat` + the matching key(s) to re-enable a fallback rung. |
+| `MISTRAL_API_KEY` / `GROQ_API_KEY` / `OPENAI_COMPAT_*` | _(unset)_ | Keys for the optional fallback rungs (off by default — see below). |
 
-## Audit model fallback ladder
+## Audit model ladder
 
-The audit path makes one structured model call per file on the shared Gemini key. When that
-free quota is exhausted (`429 RESOURCE_EXHAUSTED`), the audit doesn't fail — it **retries the
-same call on the next provider** in `AUDIT_MODEL_ORDER`. Every fallback is a free-tier,
-OpenAI/LangChain-compatible, multimodal-capable provider:
+The audit path makes one structured model call per file. It runs on **Gemini only** by
+default (`AUDIT_MODEL_ORDER=gemini`): Gemini Flash-Lite reads digital and scanned customs
+packets reliably, including multi-document PDFs.
 
-- **`mistral`** — free tier; **Ministral-3B**, a hybrid multimodal model (LLM + ViT) that
-  handles both text and scans. Set `MISTRAL_API_KEY`.
-- **`groq`** — free tier; **gpt-oss-120b** (text) + **Qwen-VL** (`qwen/qwen3.6-27b`, scans).
-  Set `GROQ_API_KEY`. gpt-oss-120b is text-only, which is why the scan path uses a separate
-  multimodal model (`GROQ_VISION_MODEL`).
-- **`openai_compat`** (off by default) — any OpenAI-compatible endpoint. Point it at
-  **OpenRouter** to reach a free **Qwen2.5-VL** (an excellent open document model, incl.
-  scans): add `openai_compat` to `AUDIT_MODEL_ORDER` and set `OPENAI_COMPAT_API_KEY`,
-  `OPENAI_COMPAT_BASE_URL=https://openrouter.ai/api/v1`, and `OPENAI_COMPAT_MODEL` to a live
-  `:free` model id.
+The engine also supports a **provider fallback ladder** — the analyzer takes an *ordered
+list* of models and, when one fails (quota/rate/transient, or malformed structured output),
+retries the same call on the next. But the free Mistral/Groq vision models proved unreliable
+for this structured multi-document task in live testing (each surfaced a different limitation
+— page-count caps, tool-calling gaps, weak multi-page recall), so **they are off by default**.
+Their adapters remain in the code and can be re-enabled per rung:
 
-A rung engages only once its key (and, for `openai_compat`, its base URL) is set — so the
-app ships working on **Gemini alone** and each fallback is opt-in. Only quota/rate/transient
-errors trigger fail-over; a genuine error surfaces normally. **Model ids are env-tunable on
-purpose**: free model names churn, so when one is retired you swap a single dashboard
-variable — no redeploy.
+- **`mistral`** — Ministral-3B (`MISTRAL_MODEL`). Add `mistral` to `AUDIT_MODEL_ORDER`, set
+  `MISTRAL_API_KEY`.
+- **`groq`** — gpt-oss-120b text + Qwen-VL scans (`GROQ_MODEL`/`GROQ_VISION_MODEL`; Qwen-VL
+  caps images at 3/request — the analyzer packs pages to fit — and needs
+  `GROQ_STRUCTURED_METHOD=json_schema` since it can't tool-call). Add `groq`, set `GROQ_API_KEY`.
+- **`openai_compat`** — any OpenAI-compatible endpoint (e.g. OpenRouter → a free Qwen2.5-VL).
+  Add `openai_compat`, set `OPENAI_COMPAT_API_KEY` / `OPENAI_COMPAT_BASE_URL` /
+  `OPENAI_COMPAT_MODEL`.
+
+**Model ids are env-tunable on purpose** — free model names churn, so re-enabling a rung and
+pointing it at a working model is a dashboard change, no redeploy.
 
 > **Note on `openai_compat` and data.** Hosted third-party models (e.g. via OpenRouter)
 > receive the document content of each audited packet. For real commercial documents, weigh

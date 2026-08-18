@@ -134,18 +134,15 @@ both `LLM_MODEL` (text path) and `VISION_MODEL` (scans) default to
 `gemini-flash-lite-latest` — Flash-Lite is natively multimodal, so one generous free tier
 reads both. Tune `MAX_FILES_PER_PACKET` and `ACTIVE_CHECKLIST`. It's multi-tenant
 (per-session isolation) with upload caps and per-session rate limits; visitors can supply
-their **own** key for any of the three providers (`X-Google-Api-Key` / `X-Mistral-Api-Key` /
-`X-Groq-Api-Key`), used per request and never stored.
+their **own** Google key via the `X-Google-Api-Key` header, used per request and never stored.
 
-**Model fallback ladder.** So a busy day doesn't die when Gemini's free quota runs out, the
-audit fails over to the next provider in `AUDIT_MODEL_ORDER` (default
-`gemini → mistral → groq`) — all free-tier and multimodal: a rung engages only once its key
-is set, so the app runs on Gemini alone until you add `MISTRAL_API_KEY` (Ministral-3B,
-multimodal) and/or `GROQ_API_KEY` (gpt-oss-120b for text + Qwen-VL for scans). A generic
-`openai_compat` rung (e.g. OpenRouter → a free Qwen2.5-VL) is supported but off by default —
-add it to the order and set its key/URL to enable. Only quota/transient errors fail over;
-model ids are env-tunable since free model names churn.
-See [DEPLOY.md](DEPLOY.md#audit-model-fallback-ladder).
+**Model ladder.** The audit runs on **Gemini** (`AUDIT_MODEL_ORDER`, default `gemini`). A
+provider-agnostic fallback ladder exists — the analyzer takes an ordered list of models and
+fails over on quota/transient/malformed-output errors — but the free Mistral/Groq vision
+models proved unreliable for this structured multi-document task in live testing, so they're
+**off by default**. Their adapters remain in the code (`mistral`, `groq`, and a generic
+`openai_compat` rung for any OpenAI-compatible endpoint); re-enable one by adding its id to
+`AUDIT_MODEL_ORDER` and setting its key/URL. See [DEPLOY.md](DEPLOY.md#audit-model-ladder).
 
 ---
 
