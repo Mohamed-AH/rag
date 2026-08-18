@@ -81,5 +81,13 @@ def build_document_message(instruction: str, content: DocumentContent) -> Any:
     parts: list[str | dict[str, Any]] = [{"type": "text", "text": instruction}]
     for part in content.media:
         encoded = base64.b64encode(part.data).decode("ascii")
-        parts.append({"type": "image_url", "image_url": f"data:{part.mime_type};base64,{encoded}"})
+        # Canonical OpenAI content-block form: image_url is an OBJECT {"url": ...}. Gemini and
+        # Mistral tolerate a bare-string image_url, but Groq / OpenAI-compatible endpoints
+        # reject it ("image_url: value must be an object"), so use the object form everywhere.
+        parts.append(
+            {
+                "type": "image_url",
+                "image_url": {"url": f"data:{part.mime_type};base64,{encoded}"},
+            }
+        )
     return HumanMessage(content=parts)

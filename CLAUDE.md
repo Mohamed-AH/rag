@@ -80,7 +80,9 @@ Pipeline & surfaces:
   pypdfium2+Pillow, capped `max_scan_pages`) because only Gemini accepts an inline
   `application/pdf` part — Mistral/Groq/OpenAI-compatible VLMs need `image/png`. Rasterize
   failure falls back to the raw PDF (Gemini-only). No model calls; fully tested.
-- `rag/llm.py` — `build_vision_llm`, `build_document_message` (text or inline image parts).
+- `rag/llm.py` — `build_vision_llm`, `build_document_message` (text or inline image parts;
+  image blocks use the **canonical OpenAI object form** `image_url:{"url":…}` — Groq/OpenAI-
+  compatible reject the bare-string shorthand that Gemini/Mistral tolerate).
 - `service.py` — `AuditService.audit_packet()` composes router→classify→extract→engine,
   enforces file cap before any model call, persists atomically (session-scoped).
   `build_audit_service()` wires production deps.
