@@ -72,7 +72,11 @@ Pure domain package `src/ragchat/audit/` — clean DAG, no I/O:
   Groq text = `openai/gpt-oss-120b` (text-only), Groq scans = Qwen-VL (`qwen/qwen3.6-27b`).
   Mistral rung = Ministral-3B (hybrid multimodal — one id for text + scans).
   `describe_audit_ladder` powers `GET /providers` (non-secret snapshot).
-  `is_retryable_provider_error` is the fail-over predicate.
+  `is_retryable_provider_error` is the fail-over predicate. Ladder entries are `Rung(model,
+  max_images)`; **Groq's Qwen-VL caps images at 3/request**, so the analyzer packs a scan's
+  pages into ≤`max_images` composite PNGs per rung (`extractors.pack_images`) — a page limit
+  never drops a document; Gemini/Mistral are uncapped. Message is built **per rung** so each
+  rung's cap (and page-count prompt) applies.
 
 Pipeline & surfaces:
 - `ingestion/router.py` — `route()` picks text path (wraps existing `extractors.py`) vs

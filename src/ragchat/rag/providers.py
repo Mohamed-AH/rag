@@ -72,6 +72,19 @@ def _no_models(settings: Settings) -> dict[str, str | None]:
 
 
 @dataclass(frozen=True)
+class Rung:
+    """One built rung of the ladder: a chat model plus its per-request image cap (if any).
+
+    ``max_images`` is None for providers with no meaningful limit (Gemini/Mistral); a number
+    (e.g. Groq's Qwen-VL = 3) tells the analyzer to pack a packet's pages into that many
+    composite images before sending, so a page-count limit never drops a document.
+    """
+
+    model: Any
+    max_images: int | None = None
+
+
+@dataclass(frozen=True)
 class _Provider:
     """One rung of the ladder: how to tell if it's configured, and how to build its models."""
 
@@ -82,6 +95,8 @@ class _Provider:
     build_vision: Callable[[Settings, int | None], Any]
     # Non-secret model ids this rung would use, for the /providers diagnostic (no keys).
     describe: Callable[[Settings], dict[str, str | None]] = field(default=_no_models)
+    # Max images this provider accepts per request (None = no meaningful cap).
+    max_images: int | None = None
 
 
 def _retry_kwargs(max_retries: int | None) -> dict[str, int]:
@@ -164,6 +179,7 @@ _REGISTRY: dict[str, _Provider] = {
         build_text=lambda s, r: _build_groq(s, s.groq_model, r),
         build_vision=lambda s, r: _build_groq(s, s.groq_vision_model, r),
         describe=lambda s: {"text": s.groq_model, "vision": s.groq_vision_model},
+        max_images=3,  # Groq's Qwen-VL rejects more than 3 images per request
     ),
     "openai_compat": _Provider(
         id="openai_compat",
@@ -186,8 +202,8 @@ def build_audit_ladder(
     byo_keys: dict[str, str] | None = None,
     max_retries: int | None = 2,
     registry: dict[str, _Provider] | None = None,
-) -> tuple[list[Any], list[Any]]:
-    """Build ``(text_models, vision_models)`` — the ordered fallback ladders for the audit.
+) -> tuple[list[Rung], list[Rung]]:
+    """Build ``(text_rungs, vision_rungs)`` — the ordered fallback ladders for the audit.
 
     **Bring-your-own keys** (``byo_keys`` maps a provider id — ``gemini``/``mistral``/``groq`` —
     to the caller's key) restrict the ladder to *only* those providers, built on the caller's
@@ -215,15 +231,15 @@ def build_audit_ladder(
     else:
         order = _order(settings)
 
-    text: list[Any] = []
-    vision: list[Any] = []
+    text: list[Rung] = []
+    vision: list[Rung] = []
     for pid in order:
         provider = reg.get(pid)
         if provider is None or not provider.available(settings):
             continue
-        text.append(provider.build_text(settings, max_retries))
+        text.append(Rung(provider.build_text(settings, max_retries), provider.max_images))
         if provider.multimodal:
-            vision.append(provider.build_vision(settings, max_retries))
+            vision.append(Rung(provider.build_vision(settings, max_retries), provider.max_images))
     return text, vision
 
 
