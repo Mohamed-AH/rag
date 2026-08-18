@@ -56,6 +56,8 @@ services:
         sync: false
       - key: GROQ_API_KEY           # free tier — enables the groq rung (gpt-oss-120b text + Qwen-VL scans)
         sync: false
+      - key: GROQ_STRUCTURED_METHOD # Qwen-VL can't tool-call; json_schema avoids 'tool_use_failed'
+        value: "json_schema"        # try 'json_mode' or 'default' if a model rejects json_schema
       # OpenRouter (openai_compat) is supported but off by default. To enable, add
       # 'openai_compat' to AUDIT_MODEL_ORDER and set OPENAI_COMPAT_API_KEY / _BASE_URL / _MODEL.
       - key: LOG_LEVEL
